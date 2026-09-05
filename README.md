@@ -4,6 +4,16 @@ RV Control UI is firmware for the Elecrow CrowPanel Advance 1.28-inch Rotary HMI
 
 The firmware is intentionally read-only with respect to RV equipment. It subscribes to Renogy telemetry and does not publish MQTT commands or subscribe to `/set` topics.
 
+## Typical Installation
+
+A running display on the bench, showing the carousel and two telemetry detail dials driven by live MQTT data.
+
+| Carousel | Battery voltage | State of charge |
+| --- | --- | --- |
+| ![Carousel showing Shore L1 Energy selected between Shore L1 Current and Shore L2 Voltage](images/carousel-shore-power.jpg) | ![Battery voltage detail dial reading 13.5 V on a 0-20 V range](images/detail-battery-voltage.jpg) | ![State of charge detail dial reading 86 percent on a 0-100 percent range](images/detail-state-of-charge.jpg) |
+
+Rotating the encoder moves the carousel across configured telemetry items; the selected item is centered and its neighbors remain partially visible. Clicking opens the detail dial, whose tick labels and range come from the `arc_min`, `arc_max`, `unit`, and `palette` values in `data/display-catalog.json`. Double-clicking returns to the carousel.
+
 ## Hardware
 
 The project targets the Elecrow CrowPanel Advance HMI ESP32-S3 rotary display:
