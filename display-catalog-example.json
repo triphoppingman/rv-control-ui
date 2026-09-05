@@ -1,0 +1,80 @@
+{
+  "sources": [
+    {"id":"battery_monitor","topic":"telemetry"},
+    {"id":"solar_controller","topic":"solar"}
+  ],
+  "palettes": [
+    {"id":"default","tick_label_color":"#FFFFFF","display_background":"#000000"},
+    {"id":"battery","tick_label_color":"#F5F7FA","display_background":"#253B4A"},
+    {"id":"solar","tick_label_color":"#F5F7FA","display_background":"#314633"},
+    {"id":"temperature","tick_label_color":"#F5F7FA","display_background":"#493038"}
+  ],
+  "items": [
+    {
+      "title": "Battery voltage",
+      "carousel_title": "Battery\nVoltage",
+      "source": "battery_monitor",
+      "palette": "battery",
+      "value_key": "battery_voltage",
+      "unit": "V",
+      "icon": "battery",
+      "screen": "electrical",
+      "arc_max": 20,
+      "precision": 1,
+      "font_size": 40
+    },
+    {
+      "title": "Battery current",
+      "carousel_title": "Battery\nCurrent",
+      "source": "battery_monitor",
+      "palette": "battery",
+      "value_key": "battery_current",
+      "unit": "A",
+      "icon": "battery",
+      "screen": "electrical",
+      "arc_min": -100,
+      "arc_max": 100,
+      "precision": 1,
+      "font_size": 40
+    },
+    {
+      "title": "PV voltage",
+      "carousel_title": "PV\nVoltage",
+      "source": "solar_controller",
+      "palette": "solar",
+      "value_key": "pv_voltage",
+      "unit": "V",
+      "icon": "solar",
+      "screen": "electrical",
+      "arc_max": 50,
+      "precision": 1,
+      "font_size": 40
+    },
+    {
+      "title": "PV current",
+      "carousel_title": "PV\nCurrent",
+      "source": "solar_controller",
+      "palette": "solar",
+      "value_key": "pv_current",
+      "unit": "A",
+      "icon": "solar",
+      "screen": "electrical",
+      "arc_max": 50,
+      "precision": 1,
+      "font_size": 40
+    },
+    {
+      "title": "Controller temp",
+      "carousel_title": "Controller\nTemp",
+      "source": "solar_controller",
+      "palette": "temperature",
+      "value_key": "controller_temperature",
+      "unit": "",
+      "icon": "temperature",
+      "screen": "temperature",
+      "arc_max": 150,
+      "precision": 0,
+      "font_size": 40
+    }
+  ]
+}
