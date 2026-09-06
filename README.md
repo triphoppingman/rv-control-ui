@@ -12,7 +12,7 @@ A running display on the bench, showing the carousel and two telemetry detail di
 | --- | --- | --- |
 | ![Carousel showing Shore L1 Energy selected between Shore L1 Current and Shore L2 Voltage](images/carousel-shore-power.jpg) | ![Battery voltage detail dial reading 13.5 V on a 0-20 V range](images/detail-battery-voltage.jpg) | ![State of charge detail dial reading 86 percent on a 0-100 percent range](images/detail-state-of-charge.jpg) |
 
-Rotating the encoder moves the carousel across configured telemetry items; the selected item is centered and its neighbors remain partially visible. Clicking opens the detail dial, whose tick labels and range come from the `arc_min`, `arc_max`, `unit`, and `palette` values in `data/display-catalog.json`. Double-clicking returns to the carousel.
+Rotating the encoder moves the carousel across configured telemetry items; the selected item is centered and its neighbors remain partially visible. Clicking opens the detail dial, whose tick labels and range come from the `arc_min`, `arc_max`, `unit`, and `palette` values in the `catalog` section of `data/config.json`. Double-clicking returns to the carousel.
 
 ## Hardware
 
@@ -67,52 +67,97 @@ The device must be able to reach the same local network and MQTT broker used by 
 
 ## Configuration
 
-Device configuration is stored in `/config.ini` on the board's SPIFFS partition. It is not compiled into the firmware. The local configuration image at `data/config.ini` is ignored by Git because it contains Wi-Fi and MQTT credentials.
+Device configuration is stored in a single file, `/config.json`, on the board's SPIFFS partition. It is not compiled into the firmware. The local configuration image at `data/config.json` is ignored by Git because it contains Wi-Fi and MQTT credentials.
 
 Create it from the tracked template:
 
 ```sh
 mkdir -p data
-cp config-example.ini data/config.ini
-cp display-catalog-example.json data/display-catalog.json
+cp config-example.json data/config.json
 ```
 
-Edit `data/config.ini` for the local network and broker:
+Edit `data/config.json` for the local network and broker:
 
-```ini
-[wifi]
-ssid = YOUR_WIFI_NETWORK
-password = YOUR_WIFI_PASSWORD
-
-[mqtt]
-host = mqtt.local
-port = 1883
-username =
-password =
-base_topic = rv
-
-[display]
-temperature_unit = F
-expected_poll_interval_seconds = 60
-sleep_after_seconds = 300
-show_brightness = 1
-show_wifi = 1
-
-[logging]
-serial_level = INFO
+```json
+{
+	"wifi": {"ssid": "YOUR_WIFI_NETWORK", "password": "YOUR_WIFI_PASSWORD"},
+	"mqtt": {"host": "mqtt.local", "port": 1883, "username": "", "password": "", "base_topic": "rv"},
+	"display": {"temperature_unit": "F", "expected_poll_interval_seconds": 60, "sleep_after_seconds": 300,
+				"show_brightness": true, "show_wifi": true},
+	"logging": {"serial_level": "INFO"},
+	"catalog": {"sources": [], "palettes": [], "items": []}
+}
 ```
 
-The firmware combines `base_topic` with the source topic suffixes in the device-local `data/display-catalog.json`. The tracked template uses a generic `telemetry` suffix and must be customized to match the collector topics for this installation. The firmware rejects missing, malformed, unknown, and oversized INI settings instead of attempting a partial network connection. Existing `renogy_topic` and `hughes_topic` settings are accepted but ignored for migration compatibility; remove them from an existing local configuration after upgrading.
+The single file carries both the device settings and the telemetry catalog. The firmware combines `mqtt.base_topic` with the source topic suffixes in the `catalog` section to build each subscription. The whole file is validated at boot and rejected as a unit on any missing, malformed, unknown, or oversized value — the device never attempts a partial network connection.
 
-`sleep_after_seconds` controls the backlight timeout after the last touch or encoder activity. `300` is five minutes. Set it to `0` to keep the backlight on continuously. User input immediately restores the last selected brightness.
+`display.sleep_after_seconds` controls the backlight timeout after the last touch or encoder activity; `300` is five minutes and `0` keeps the backlight on continuously. `display.show_brightness` and `display.show_wifi` toggle the device-local Brightness and WiFi Info carousel entries. An empty `wifi.ssid` is valid and means "no station network" — the device starts its setup hotspot instead (see below).
 
-`show_brightness` and `show_wifi` each accept only `0` or `1` and default to `1`. Set either to `0` to hide its device-local Brightness or WiFi Info entry from the carousel.
+Do not commit `data/config.json`, paste its contents into issues, or send it in serial logs. The firmware logs the broker host and MQTT topic but never logs the Wi-Fi SSID or credentials.
 
-Do not commit `data/config.ini`, paste its contents into issues, or send it in serial logs. The firmware logs broker host and MQTT topic but never logs the Wi-Fi SSID or credentials.
+## Setup Hotspot
+
+When the device cannot join the configured Wi-Fi network — or `wifi.ssid` is empty — it starts a setup hotspot so it can be configured without a USB cable or PlatformIO.
+
+- **SSID**: `rv-control-ui-XXXX`, where `XXXX` is the last four hexadecimal digits of the device MAC address.
+- **Password**: `Password123!`
+- **Address**: `192.168.77.1`
+
+Join that network from a phone or laptop, then use the Configuration API below against `http://192.168.77.1`. The hotspot is entered after two consecutive failed 30-second association attempts (about 60 seconds) and exits automatically once the station network connects. While the hotspot is active the MQTT client stays off and the status LED is red.
+
+## Status LED
+
+The onboard NeoPixel strip shows network state on a single dim pixel, visible even when the display backlight has slept:
+
+| Color | State |
+| --- | --- |
+| Blue | Starting up / connecting to Wi-Fi |
+| Orange | Wi-Fi connected, but the MQTT broker is not |
+| Green | Fully connected (Wi-Fi and MQTT) |
+| Red | Setup hotspot active |
+
+## Configuration API
+
+A minimal HTTP REST API is always exposed — on the hotspot address (`192.168.77.1`) and on the device's normal LAN address — so the configuration can be read and updated without reprogramming via PlatformIO. It is served by the network task and never blocks the display.
+
+| Method | Path | Behavior |
+| --- | --- | --- |
+| `GET` | `/api/config` | Return the running `config.json`, including the Wi-Fi and MQTT passwords. |
+| `POST` | `/api/config` | Validate the body against the full schema, write it to `/config.json` atomically, then restart the device to apply it. |
+| `GET` | `/api/info` | Return a debugging snapshot: build date/time, chip model/revision, MAC, uptime, free heap, sketch size, and live network state (hotspot active, Wi-Fi/MQTT connected, SSID, IP, RSSI). |
+| `POST` | `/api/restart` | Acknowledge with `200`, then restart the device after a short grace delay. No body required. |
+
+Read the current configuration:
+
+```sh
+curl http://192.168.77.1/api/config
+```
+
+Read the device status snapshot:
+
+```sh
+curl http://192.168.77.1/api/info
+```
+
+Replace the configuration (the device restarts to apply it):
+
+```sh
+curl -X POST -H "Content-Type: application/json" \
+	--data-binary @config-example.json \
+	http://192.168.77.1/api/config
+```
+
+Restart the device without changing anything:
+
+```sh
+curl -X POST http://192.168.77.1/api/restart
+```
+
+A `POST /api/config` body must satisfy the same validation used at boot; an invalid body returns `400` with a short error and leaves the on-flash configuration untouched. The API is unauthenticated and returns secrets in plaintext, matching the local-only trust model of the private RV network and its unauthenticated MQTT broker — do not expose the device to an untrusted network.
 
 ## Display Catalog
 
-MQTT-backed carousel entries are defined in the device-local SPIFFS file `data/display-catalog.json`. Create it by copying the tracked [display-catalog-example.json](display-catalog-example.json) template, then customize its source topics, visual palettes, and display items for the installation. The catalog owns allowed source IDs and MQTT topic suffixes, named tick-label/background palettes, telemetry item order, detail title, wrapped carousel label, JSON field name, units, icon, and display arc range. Brightness and Wi-Fi Info remain hardcoded local display functions and are always appended after catalog items.
+MQTT-backed carousel entries are defined in the `catalog` section of `data/config.json`. The catalog owns allowed source IDs and MQTT topic suffixes, named tick-label/background palettes, telemetry item order, detail title, wrapped carousel label, JSON field name, units, icon, and display arc range. Brightness and Wi-Fi Info remain hardcoded local display functions and are always appended after catalog items.
 
 Define MQTT topics in `sources` and visual colors in `palettes`, then reference their stable IDs from each display item:
 
@@ -152,13 +197,13 @@ Build the firmware from the project root:
 ~/.platformio/penv/bin/pio run
 ```
 
-Upload the configuration filesystem before the application firmware, and repeat this command whenever `data/config.ini` changes:
+Upload the configuration filesystem before the application firmware, and repeat this command whenever `data/config.json` changes:
 
 ```sh
 ~/.platformio/penv/bin/pio run --target uploadfs
 ```
 
-The same filesystem upload is required after editing `data/display-catalog.json`.
+The same filesystem upload applies the configuration and its catalog section.
 
 Upload the firmware:
 
@@ -200,7 +245,7 @@ Source-owned application code lives in `src/`. [Arduino/RotaryScreen_1_28/Rotary
 
 SquareLine project source is under `Arduino/ui_project/`; its generated export used for builds is under `Arduino/libraries/UI/`. Edit the SquareLine project, export LVGL 9 code, then deliberately synchronize the generated output. Avoid untracked manual edits to generated files.
 
-`MqttTelemetry` runs Wi-Fi and MQTT work in a dedicated FreeRTOS task. It never calls LVGL. The Arduino `loop()` owns LVGL updates and copies the latest parsed snapshot from the networking task. Keep that separation when adding values, status indicators, or reconnect logic.
+`NetworkController` runs all networking — Wi-Fi station/hotspot, MQTT, the configuration REST API, and the NeoPixel status LED — in a dedicated FreeRTOS task. It never calls LVGL. The Arduino `loop()` owns LVGL updates and copies the latest parsed snapshot from the networking task. Keep that separation when adding values, status indicators, or reconnect logic.
 
 Run this before sending a change for review:
 
@@ -233,12 +278,11 @@ PlatformIO compiles [`src/main.cpp`](src/main.cpp) as the application entry poin
 At startup, `setup()` performs these operations in order:
 
 1. Starts USB CDC serial logging at 115200 baud.
-2. Mounts SPIFFS and validates `/config.ini`.
-3. Loads and validates `/display-catalog.json` when configuration succeeded.
-4. Initializes the board power pins, GC9A01 display, DMA, LVGL, CST816D touch controller, backlight PWM, and encoder input queue.
-5. Starts the MQTT task only when both configuration and catalog are valid.
+2. Mounts SPIFFS and validates the unified `/config.json` (settings and catalog together).
+3. Initializes the board power pins, GC9A01 display, DMA, LVGL, CST816D touch controller, backlight PWM, and encoder input queue.
+4. Starts the network task, which brings up Wi-Fi (or the setup hotspot), the configuration API, the status LED, and MQTT.
 
-The carousel appends enabled local Brightness and WiFi Info entries after catalog entries. Both controls default to enabled and can be hidden independently with `show_brightness = 0` or `show_wifi = 0`. If the catalog cannot be loaded, enabled local entries still make the display usable for basic diagnostics, but MQTT-backed entries are unavailable.
+The carousel appends enabled local Brightness and WiFi Info entries after catalog entries. Both controls default to enabled and can be hidden independently with `show_brightness` or `show_wifi` in `data/config.json`. If the configuration or its catalog is invalid, enabled local entries still make the display usable for basic diagnostics and the configuration API and hotspot remain available for repair, but MQTT-backed entries are unavailable.
 
 The runtime deliberately has three ownership domains:
 
@@ -246,7 +290,7 @@ The runtime deliberately has three ownership domains:
 | --- | --- | --- | --- |
 | UI and display | Arduino `loop()` | LVGL timers, screen changes, labels, arcs, backlight sleep, and applying telemetry copies | Block on Wi-Fi/MQTT or accept cross-task LVGL calls |
 | Rotary input | `encoderTask` FreeRTOS task and the button ISR | Quadrature sampling, debounce, single/double-click classification, and posting `EncoderAction` values to a queue | Touch LVGL objects directly |
-| Network | `MqttTelemetry` FreeRTOS task | Wi-Fi association, MQTT reconnects, subscriptions, bounded JSON parsing, and retaining the newest snapshot | Touch LVGL or send equipment commands |
+| Network | `NetworkController` FreeRTOS task | Wi-Fi station/hotspot, MQTT reconnects, subscriptions, the configuration REST API, the status LED, and bounded JSON parsing | Touch LVGL or send equipment commands |
 
 `loop()` is the sole owner of LVGL objects. The MQTT task copies its newest catalog-indexed `TelemetrySnapshot` through a short critical section; the loop takes a copy and refreshes an active detail view. Preserve this boundary when adding status indicators, new telemetry, or reconnect behavior. Calling LVGL from an MQTT callback or FreeRTOS task will introduce display races and instability.
 

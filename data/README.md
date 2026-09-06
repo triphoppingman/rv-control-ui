@@ -45,49 +45,55 @@ The device must be able to reach the same local network and MQTT broker used by 
 
 ## Configuration
 
-Device configuration is stored in `/config.ini` on the board's SPIFFS partition. It is not compiled into the firmware. The local configuration image at `data/config.ini` is ignored by Git because it contains Wi-Fi and MQTT credentials.
+Device configuration is stored in a single file, `/config.json`, on the board's SPIFFS partition. It is not compiled into the firmware. The local configuration image at `data/config.json` is ignored by Git because it contains Wi-Fi and MQTT credentials.
 
 Create it from the tracked template:
 
 ```sh
 mkdir -p data
-cp config-example.ini data/config.ini
+cp config-example.json data/config.json
 ```
 
-Edit `data/config.ini` for the local network and broker:
+Edit `data/config.json` for the local network and broker:
 
-```ini
-[wifi]
-ssid = YOUR_WIFI_NETWORK
-password = YOUR_WIFI_PASSWORD
-
-[mqtt]
-host = mqtt.local
-port = 1883
-username =
-password =
-base_topic = rv
-renogy_topic = renogy
-hughes_topic = hughes
-
-[display]
-temperature_unit = F
-expected_poll_interval_seconds = 60
-sleep_after_seconds = 300
-
-[logging]
-serial_level = INFO
+```json
+{
+	"wifi": {"ssid": "YOUR_WIFI_NETWORK", "password": "YOUR_WIFI_PASSWORD"},
+	"mqtt": {"host": "mqtt.local", "port": 1883, "username": "", "password": "", "base_topic": "rv"},
+	"display": {"temperature_unit": "F", "expected_poll_interval_seconds": 60, "sleep_after_seconds": 300,
+				"show_brightness": true, "show_wifi": true},
+	"logging": {"serial_level": "INFO"},
+	"catalog": {"sources": [], "palettes": [], "items": []}
+}
 ```
 
-The firmware subscribes to `base_topic` plus both `renogy_topic` and `hughes_topic`; the defaults are `rv/renogy` and `rv/hughes`, matching the default `rv-control` example configuration. The firmware rejects missing, malformed, unknown, and oversized INI settings instead of attempting a partial network connection.
+The single file carries both the device settings and the telemetry catalog. The firmware combines `mqtt.base_topic` with the source topic suffixes in the `catalog` section to build each subscription. The whole file is validated at boot and rejected as a unit on any missing, malformed, unknown, or oversized value — the device never attempts a partial network connection.
 
-`sleep_after_seconds` controls the backlight timeout after the last touch or encoder activity. `300` is five minutes. Set it to `0` to keep the backlight on continuously. User input immediately restores the last selected brightness.
+`display.sleep_after_seconds` controls the backlight timeout after the last touch or encoder activity; `300` is five minutes and `0` keeps the backlight on continuously. An empty `wifi.ssid` is valid and means "no station network" — the device starts its setup hotspot instead.
 
-Do not commit `data/config.ini`, paste its contents into issues, or send it in serial logs. The firmware logs broker host and MQTT topic but never logs the Wi-Fi SSID or credentials.
+Do not commit `data/config.json`, paste its contents into issues, or send it in serial logs. The firmware logs the broker host and MQTT topic but never logs the Wi-Fi SSID or credentials.
+
+## Setup Hotspot and Configuration API
+
+When the device cannot join the configured Wi-Fi network (or none is configured), it starts a setup hotspot: SSID `rv-control-ui-XXXX` (last four MAC hex digits), password `Password123!`, address `192.168.77.1`. A minimal HTTP API is always exposed — on the hotspot and on the normal LAN address:
+
+- `GET /api/config` returns the running configuration, including passwords.
+- `POST /api/config` validates the body, writes `/config.json` atomically, and restarts the device to apply it.
+
+```sh
+curl http://192.168.77.1/api/config
+curl -X POST -H "Content-Type: application/json" --data-binary @config-example.json http://192.168.77.1/api/config
+```
+
+The API is unauthenticated and returns secrets in plaintext, matching the local-only trust model of the private RV network.
+
+## Status LED
+
+A single dim NeoPixel shows network state even when the display backlight has slept: blue while connecting to Wi-Fi, orange when Wi-Fi is up but the MQTT broker is not, green when fully connected, and red while the setup hotspot is active.
 
 ## Display Catalog
 
-MQTT-backed carousel entries are defined in the tracked SPIFFS file [data/display-catalog.json](data/display-catalog.json). The catalog controls the telemetry item order, detail title, wrapped carousel label, MQTT topic suffix, JSON field name, units, icon, visual treatment, and display arc range. Brightness and Wi-Fi Info remain hardcoded local display functions and are always appended after catalog items.
+MQTT-backed carousel entries are defined in the `catalog` section of `data/config.json`. The catalog controls the telemetry item order, detail title, wrapped carousel label, MQTT topic suffix, JSON field name, units, icon, visual treatment, and display arc range. Brightness and Wi-Fi Info remain hardcoded local display functions and are always appended after catalog items.
 
 Each telemetry item has this form:
 
@@ -95,7 +101,8 @@ Each telemetry item has this form:
 {
 	"title": "PV current",
 	"carousel_title": "PV\nCurrent",
-	"mqtt_topic": "renogy",
+	"source": "solar_controller",
+	"palette": "solar",
 	"value_key": "pv_current",
 	"unit": "A",
 	"icon": "solar",
@@ -104,7 +111,7 @@ Each telemetry item has this form:
 }
 ```
 
-Supported icon values are `battery`, `solar`, `load`, and `temperature`. Supported screen values are `electrical` and `temperature`. `mqtt_topic` must match either `[mqtt] renogy_topic` or `[mqtt] hughes_topic`. The Hughes 50A source combines both legs into a single payload, so the catalog uses the per-line keys `voltage_line_1`, `current_line_1`, `energy_line_1`, `voltage_line_2`, `current_line_2`, and `energy_line_2` after the Renogy items. An invalid catalog is rejected as a whole and reported over serial at startup.
+Supported icon values are `battery`, `solar`, `load`, and `temperature`. Supported screen values are `electrical` and `temperature`. Each item `source` and `palette` must name a declared entry in `catalog.sources` and `catalog.palettes`. The Hughes 50A source combines both legs into a single payload, so the catalog uses the per-line keys `voltage_line_1`, `current_line_1`, `energy_line_1`, `voltage_line_2`, `current_line_2`, and `energy_line_2` after the Renogy items. An invalid catalog is rejected as a whole and reported over serial at startup.
 
 ## Build and Upload
 
@@ -114,13 +121,13 @@ Build the firmware from the project root:
 ~/.platformio/penv/bin/pio run
 ```
 
-Upload the configuration filesystem before the application firmware, and repeat this command whenever `data/config.ini` changes:
+Upload the configuration filesystem before the application firmware, and repeat this command whenever `data/config.json` changes:
 
 ```sh
 ~/.platformio/penv/bin/pio run --target uploadfs
 ```
 
-The same filesystem upload is required after editing `data/display-catalog.json`.
+The same filesystem upload applies the configuration and its catalog section.
 
 Upload the firmware:
 

@@ -21,49 +21,39 @@ The current SquareLine asset library is the required visual baseline for the Ren
 
 ## Configuration Is External
 
-Wi-Fi, MQTT, topic, and display preferences are loaded from `/config.ini` in SPIFFS. They must never be embedded in firmware source or printed in full to serial logs. A device-specific `config.ini` contains credentials, so it must not be committed, included in screenshots, or copied into documentation.
+Wi-Fi, MQTT, topic, catalog, and display preferences are loaded from a single `/config.json` in SPIFFS. They must never be embedded in firmware source or printed in full to serial logs. A device-specific `config.json` contains credentials, so it must not be committed, included in screenshots, or copied into documentation.
 
 Use this configuration arrangement:
 
 | Item | Version control | Purpose |
 | --- | --- | --- |
-| `data/config.ini` | ignored | Device-specific configuration uploaded into the SPIFFS image by PlatformIO. |
-| `data/display-catalog.json` | tracked | Bounded, editable telemetry carousel definitions uploaded into the SPIFFS image. |
-| `config-example.ini` | tracked | Complete INI schema with safe placeholder values and explanatory comments. |
+| `data/config.json` | ignored | Device-specific configuration (settings + catalog) uploaded into the SPIFFS image by PlatformIO. |
+| `config-example.json` | tracked | Complete JSON schema with safe placeholder values. |
 | `partitions.csv` | tracked | Custom partition table with a dedicated, bounded SPIFFS partition. |
-| `src/config_loader.*` | tracked | Mounts SPIFFS, parses `/config.ini`, validates values, and exposes typed settings with redacted diagnostics. |
+| `src/config_loader.*` | tracked | Mounts SPIFFS, parses and validates `/config.json`, and exposes typed settings + catalog with redacted diagnostics. |
 
-Configure PlatformIO to use `partitions.csv` and upload the filesystem with `pio run --target uploadfs` before (or separately from) firmware upload. The custom table should allocate a 256 KiB SPIFFS partition: substantially more than the few kilobytes needed for one INI file, while leaving nearly all of the 16 MB flash for firmware and future application needs. Do not use SPIFFS for history, logs, generated assets, or telemetry caching in the first release.
+Configure PlatformIO to use `partitions.csv` and upload the filesystem with `pio run --target uploadfs` before (or separately from) firmware upload. The custom table allocates a bounded SPIFFS partition: substantially more than the few kilobytes needed for the configuration file, while leaving nearly all of the 16 MB flash for firmware and future application needs. Do not use SPIFFS for history, logs, generated assets, or telemetry caching in the first release.
 
-The loader must set an explicit maximum configuration file size, read the file once during startup, reject malformed INI syntax, reject missing required keys, and bound all parsed string values before passing them to Wi-Fi or MQTT libraries. On mount, read, or validation failure, start the display in a clearly labelled configuration-error state and do not attempt network connection. Configuration changes take effect only after reboot or an intentional reload action; the device must not rewrite the file during normal operation.
+The loader sets an explicit maximum configuration file size, reads the file once during startup, rejects malformed JSON, rejects missing required keys, and bounds all parsed string values before passing them to Wi-Fi or MQTT libraries. The whole document is validated and rejected as a unit; no partially applied configuration is produced. The identical validator is reused by the configuration REST API so a POSTed configuration can never be persisted unless it would boot. Configuration changes take effect only after reboot or an intentional reload action.
 
-`/display-catalog.json` defines the MQTT-backed carousel entries. Each item declares `title`, `carousel_title`, `mqtt_topic`, `value_key`, `unit`, `icon`, `screen`, and `arc_max`. The current task supports configured Renogy and Hughes topic suffixes. Load it once from SPIFFS with a bounded JSON parser and fixed maximum item count. Reject the whole catalog on an invalid entry; do not create a partially configured carousel. Brightness and Wi-Fi Info remain hardcoded local items after the catalog entries, because they are not MQTT telemetry.
+The `catalog` section of `/config.json` defines the MQTT-backed carousel entries, using the same `sources`, `palettes`, and `items` keys and limits as the previous standalone catalog. Reject the whole catalog on an invalid entry; do not create a partially configured carousel. Brightness and Wi-Fi Info remain hardcoded local items after the catalog entries, because they are not MQTT telemetry.
 
-Required settings:
+An empty `wifi.ssid` is valid and means no station network is configured; the device then runs its setup hotspot. A validated REST API (`GET`/`POST /api/config`) is always exposed — on the hotspot address `192.168.77.1` and on the station LAN address — so the device can be reconfigured without reprogramming; a successful POST is written atomically and applied by restart. See [docs/features/json-config-hotspot-api.md](docs/features/json-config-hotspot-api.md).
 
-```ini
-[wifi]
-ssid = YOUR_WIFI_NETWORK
-password = YOUR_WIFI_PASSWORD
+Schema example (not a location for real values):
 
-[mqtt]
-host = mqtt.local
-port = 1883
-username =
-password =
-base_topic = rv
-renogy_topic = renogy
-
-[display]
-temperature_unit = F
-expected_poll_interval_seconds = 60
-sleep_after_seconds = 300
-
-[logging]
-serial_level = INFO
+```json
+{
+	"wifi": {"ssid": "YOUR_WIFI_NETWORK", "password": "YOUR_WIFI_PASSWORD"},
+	"mqtt": {"host": "mqtt.local", "port": 1883, "username": "", "password": "", "base_topic": "rv"},
+	"display": {"temperature_unit": "F", "expected_poll_interval_seconds": 60, "sleep_after_seconds": 300,
+				"show_brightness": true, "show_wifi": true},
+	"logging": {"serial_level": "INFO"},
+	"catalog": {"sources": [], "palettes": [], "items": []}
+}
 ```
 
-This is a schema example, not a location for real values. Construct the subscription from slash-trimmed base and suffix values, yielding `rv/renogy` with the defaults. The status screen may show the resulting topic, never a password or Wi-Fi SSID.
+Construct the subscription from slash-trimmed base and suffix values, yielding `rv/renogy` with the defaults. The status screen may show the resulting topic, never a password or Wi-Fi SSID.
 
 `sleep_after_seconds` controls the inactivity timeout for blanking the display backlight; `300` is five minutes and `0` disables automatic sleep. Any touch or rotary-encoder action restores the last selected brightness immediately.
 
@@ -81,7 +71,7 @@ Bring the device up in this order and stop at the first stage that fails. Each s
 
 1. **USB and serial.** `~/.platformio/penv/bin/pio device list` must show the board. If nothing appears, try a USB-C *data* cable, another port, and confirm the user is in the `dialout` group on Linux (`id -nG`). A port that enumerates but never prints is usually a baud mismatch; the monitor must run at `115200`.
 2. **Firmware upload.** If upload fails to sync, hold **BOOT**, tap **RESET**, release **BOOT**, then retry with an explicit port: `~/.platformio/penv/bin/pio run --target upload --upload-port /dev/ttyACM0`. Because `ARDUINO_USB_CDC_ON_BOOT=1`, the serial device disappears and re-enumerates across resets; reopen the monitor after upload instead of assuming the board hung.
-3. **Filesystem image.** `/config.ini` and `/display-catalog.json` live in SPIFFS, not firmware. Run `~/.platformio/penv/bin/pio run --target uploadfs` after any change to `data/`. A firmware-only upload leaves the previous configuration in place and produces stale or configuration-error behavior that looks like a code defect.
+3. **Filesystem image.** `/config.json` lives in SPIFFS, not firmware. Run `~/.platformio/penv/bin/pio run --target uploadfs` after any change to `data/`. A firmware-only upload leaves the previous configuration in place and produces stale or configuration-error behavior that looks like a code defect.
 4. **Display and backlight.** A dark panel with healthy serial output is normally backlight or sleep behavior, not a driver fault. Check `[display] sleep_after_seconds` and confirm touch or encoder input restores the last brightness. Garbled or shifted pixels point at SPI2/DMA or panel setup; compare against the known-good `Arduino/RotaryScreen_1_28/RotaryScreen_1_28.ino` before editing driver code.
 5. **Touch and encoder.** Touch uses `Wire1` on GPIO 6/7 and the encoder uses GPIO 45/42/41. Dead touch with a working encoder is an I2C/CST816D problem; dead encoder with working touch is a queue or pin problem. Never diagnose either by adding LVGL calls to a FreeRTOS task.
 6. **Wi-Fi.** The ESP32-S3 radio is 2.4 GHz only; a 5 GHz-only SSID never associates. Read the logged `WiFi.status()` value: `1` = SSID not found (name, band, or hidden network), `4` = association/auth failure (usually the password), `5` = connection lost, `6` = disconnected/retrying, `3` = connected. Confirm the connected log line reports a plausible `RSSI` and a routable IP.
@@ -92,7 +82,7 @@ Bring the device up in this order and stop at the first stage that fails. Each s
 Diagnostic guardrails:
 
 - Raise `[logging] serial_level` to `DEBUG` for bring-up, then return it to `INFO`. `DEBUG` may report bounded payload metadata only; it must never print the raw INI file, SSID, passwords, or complete payloads.
-- Never paste `data/config.ini`, serial captures containing credentials, or real device identifiers into issues, commits, or documentation. Redact SSID, broker credentials, and MAC addresses.
+- Never paste `data/config.json`, serial captures containing credentials, or real device identifiers into issues, commits, or documentation. Redact SSID, broker credentials, and MAC addresses.
 - Reproduce a suspected hardware defect against the reference sketch behavior before altering the proven display, touch, encoder, DMA, or backlight setup.
 - Prefer a full erase (`~/.platformio/penv/bin/pio run --target erase`) only as a deliberate last step; it removes the SPIFFS configuration and requires re-running `uploadfs`.
 - Do not report Wi-Fi, MQTT, serial, or on-device results as verified unless the check was actually executed on hardware. State plainly which stages were run and which were not.
@@ -137,12 +127,14 @@ Use ArduinoJson or another structured parser. Do not extract values through stri
 | Area | Responsibility |
 | --- | --- |
 | `Arduino/RotaryScreen_1_28/RotaryScreen_1_28.ino` | Board setup, LVGL initialization, input dispatch, and application startup. |
-| `data/config.ini` | Ignored device-specific SPIFFS configuration image. |
-| `config-example.ini` | Tracked placeholder schema for `/config.ini`. |
+| `data/config.json` | Ignored device-specific SPIFFS configuration image (settings + catalog). |
+| `config-example.json` | Tracked placeholder schema for `/config.json`. |
 | `partitions.csv` | Tracked 256 KiB SPIFFS partition allocation. |
-| `src/config_loader.*` | SPIFFS mounting, bounded INI parsing, validation, typed settings, and redacted diagnostics. |
-| `src/mqtt_client.*` | Wi-Fi/MQTT task, reconnect timing, subscription, bounded receive callback, and snapshot handoff. |
-| `src/renogy_snapshot.*` | Typed optional fields, JSON parsing, timestamp, and freshness calculation. |
+| `src/config_loader.*` | SPIFFS mounting, bounded JSON parsing, validation, typed settings + catalog, and redacted diagnostics. |
+| `src/network_controller.*` | `NetworkController`: Wi-Fi station/hotspot, MQTT reconnects, subscriptions, bounded receive callback, snapshot handoff, and ownership of the API and status LED. |
+| `src/config_api.*` | `ConfigApi`: HTTP `WebServer` and the GET/POST `/api/config` handlers. |
+| `src/status_led.*` | `StatusLed`: NeoPixel network status indicator. |
+| `src/constants.h` | All compile-time constants, including hotspot, API, and status-LED values. |
 | `src/ui_controller.*` | Screen state, navigation intents, and LVGL value/status updates. |
 | `Arduino/ui_project/` | SquareLine layout source. |
 | `Arduino/libraries/UI/` | Generated SquareLine output. Do not make irreproducible hand edits here. |
@@ -191,7 +183,7 @@ Keep generated identifiers semantic and stable. Application behavior belongs in 
 
 ## Delivery Sequence
 
-1. Add `.gitignore`, `config-example.ini`, `data/config.ini` handling, `partitions.csv`, and bounded SPIFFS configuration loading before network code.
+1. Add `.gitignore`, `config-example.json`, `data/config.json` handling, `partitions.csv`, and bounded SPIFFS configuration loading before network code.
 2. Add bounded Wi-Fi/MQTT reconnect behavior using validated SPIFFS configuration and verify that LVGL remains responsive during disconnection.
 3. Implement `RenogySnapshot` parsing with serial fixtures: valid, missing field, malformed JSON, and oversized payload.
 4. Replace the demo controls with a telemetry-value carousel, preserve the brightness item, and bind a simulated snapshot.
@@ -204,8 +196,8 @@ Each stage must build independently. Keep SquareLine re-exports separate from ne
 ## Renogy Browse Definition of Done
 
 - PlatformIO builds with the existing ESP32-S3 and PSRAM configuration.
-- Local credentials are present only in ignored SPIFFS `data/config.ini`, never firmware source.
-- The device enters a clear configuration-error state when SPIFFS cannot mount or `/config.ini` is missing, oversized, malformed, or invalid.
+- Local credentials are present only in ignored SPIFFS `data/config.json`, never firmware source.
+- The device enters a clear configuration-error state when SPIFFS cannot mount or `/config.json` is missing, oversized, malformed, or invalid.
 - Valid Renogy messages update all available fields within one UI refresh cycle without an application-level polling request.
 - Missing fields show `--` without affecting valid values.
 - The rotary encoder moves reliably across every telemetry value, retained brightness control, and connection-status item.
