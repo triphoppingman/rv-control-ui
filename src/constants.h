@@ -41,12 +41,12 @@ constexpr int kBacklightPin = 46;
 
 /** @brief NeoPixel (WS2812) status-LED data pin. */
 constexpr int kStatusLedPin = 48;
-/** @brief Number of NeoPixel pixels on the board's strip. */
-constexpr size_t kStatusLedCount = 5;
-/** @brief Index of the single strip pixel used as the network status indicator. */
-constexpr size_t kStatusLedStatusPixel = 0;
+/** @brief Number of NeoPixel pixels driven; the strip is illuminated as a whole. */
+constexpr size_t kStatusLedCount = 6;
 /** @brief Dim NeoPixel brightness so the indicator is visible but not glaring at night. */
 constexpr uint8_t kStatusLedBrightness = 32;
+/** @brief How long the Connected (success) state stays lit before the strip turns off. */
+constexpr uint32_t kStatusLedConnectedOffMilliseconds = 10000;
 
 /** @brief Initial user-selected display brightness percentage. */
 constexpr uint8_t kDefaultBrightnessPercent = 50;

@@ -67,6 +67,9 @@ class NetworkController {
   /** @brief Refresh the status LED from the current Wi-Fi/MQTT/hotspot state. */
   void updateStatusLed();
 
+  /** @brief Push the live network state to the API's info-endpoint snapshot. */
+  void publishNetworkStatus();
+
   /** @brief Receive one broker message and update the snapshot when it is valid JSON. */
   static void messageReceived(char *topic, uint8_t *payload, unsigned int length);
 

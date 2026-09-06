@@ -27,12 +27,12 @@ This feature does not change the carousel, telemetry rendering, MQTT subscriptio
 
 The network task's class is renamed because its brief has outgrown MQTT: it now owns Wi-Fi station/AP modes, the MQTT client, the HTTP configuration API, and the NeoPixel status LED.
 
-- `MqttTelemetry` → **`NetworkManager`**, in **`src/network_manager.*`** (files renamed from `src/mqtt_telemetry.*`). This is the single owner of all networking: Wi-Fi station and hotspot modes, the MQTT subscriber, the HTTP server, and the status LED. It runs the dedicated FreeRTOS task, holds the connection state machine, and exposes `begin(...)` and `copyLatestSnapshot(...)` to the rest of the firmware. `loop()` still consumes snapshots; `NetworkManager` still never touches LVGL.
-- The API is a class, **`ConfigApi`** (`src/config_api.*`), owned and `handleClient()`-pumped by `NetworkManager`. It encapsulates the `WebServer` instance, the GET/POST handlers, validation handoff, and the atomic-write-and-restart logic. Keeping it a separate class (rather than free functions inside the network task) isolates the HTTP surface so it can be read and tested on its own.
-- The status LED is a small class, **`StatusLed`** (`src/status_led.*`), wrapping the `Adafruit_NeoPixel` strip behind a `show(State)` method over a `enum class State { Starting, BrokerDown, Connected, Hotspot }`. `NetworkManager` calls `show(...)` on state transitions; the LED class owns GPIO 48, the color map, and brightness, so no color/GPIO detail leaks into network code.
+- `MqttTelemetry` → **`NetworkController`**, in **`src/network_controller.*`** (files renamed from `src/mqtt_telemetry.*`). This is the single owner of all networking: Wi-Fi station and hotspot modes, the MQTT subscriber, the HTTP server, and the status LED. It runs the dedicated FreeRTOS task, holds the connection state machine, and exposes `begin(...)` and `copyLatestSnapshot(...)` to the rest of the firmware. `loop()` still consumes snapshots; `NetworkController` still never touches LVGL.
+- The API is a class, **`ConfigApi`** (`src/config_api.*`), owned and `handleClient()`-pumped by `NetworkController`. It encapsulates the `WebServer` instance, the GET/POST handlers, validation handoff, and the atomic-write-and-restart logic. Keeping it a separate class (rather than free functions inside the network task) isolates the HTTP surface so it can be read and tested on its own.
+- The status LED is a small class, **`StatusLed`** (`src/status_led.*`), wrapping the `Adafruit_NeoPixel` strip behind a `show(State)` method over a `enum class State { Starting, BrokerDown, Connected, Hotspot }`. `NetworkController` calls `show(...)` on state transitions; the LED class owns GPIO 48, the color map, and brightness, so no color/GPIO detail leaks into network code.
 - The unified config loader stays a cohesive module (`src/config_loader.*`) but exposes a class-style API: a `ConfigStore`/`AppConfigLoader` that owns SPIFFS mounting, the bounded document, validation, and the typed `AppConfig` + `DisplayCatalog` output, plus the shared "validate this JSON document" entry point reused by `ConfigApi` for POST bodies.
 
-Each class gets a documented public interface and private implementation, per the repo's comment style. No class reaches across another's responsibility: LVGL stays in `loop()`, networking in `NetworkManager`, HTTP in `ConfigApi`, GPIO in `StatusLed`, and config parsing/validation in the loader.
+Each class gets a documented public interface and private implementation, per the repo's comment style. No class reaches across another's responsibility: LVGL stays in `loop()`, networking in `NetworkController`, HTTP in `ConfigApi`, GPIO in `StatusLed`, and config parsing/validation in the loader.
 
 Compile-time constants stay **externalized in their own header**, [src/constants.h](../src/constants.h), as today. This feature adds new named constants there rather than scattering literals through the classes, so every value is defined once, named for its purpose, and easy to audit:
 
@@ -78,14 +78,14 @@ Tracked vs ignored files keep the current pattern, renamed:
 | `config-example.ini`, `display-catalog-example.json` | removed | Superseded by `config-example.json`. |
 | `src/config_loader.*` | tracked | Mounts SPIFFS, parses and validates `/config.json`, exposes typed settings + catalog. |
 | `src/display_catalog.*` | removed | Merged into the unified config loader. |
-| `src/network_manager.*` | renamed from `mqtt_telemetry.*` | `NetworkManager`: Wi-Fi station/hotspot modes, MQTT subscription, owns `ConfigApi` and `StatusLed`. |
+| `src/network_controller.*` | renamed from `mqtt_telemetry.*` | `NetworkController`: Wi-Fi station/hotspot modes, MQTT subscription, owns `ConfigApi` and `StatusLed`. |
 | `src/config_api.*` | new | `ConfigApi`: the HTTP `WebServer` and GET/POST `/api/config` handlers. |
 | `src/status_led.*` | new | `StatusLed`: NeoPixel status indicator and its color map. |
 | `src/constants.h` | tracked | All compile-time constants, extended with hotspot, API, and status-LED values. |
 
 ### 2. Setup hotspot fallback
 
-The network task (`NetworkManager`) gains an explicit hotspot mode:
+The network task (`NetworkController`) gains an explicit hotspot mode:
 
 - Enter hotspot mode when either:
   - `wifi.ssid` is empty (no station network configured), or
@@ -115,7 +115,7 @@ The board carries a 5-pixel Adafruit NeoPixel (WS2812) strip on GPIO 48, and the
 
 Design decisions:
 
-- **Owner**: the NeoPixel is driven exclusively from the network task (`NetworkManager`), which already tracks the exact Wi-Fi/MQTT connection state that determines the color. It never touches LVGL, so the `loop()`-owns-LVGL rule is unaffected — the strip is plain GPIO, not a display object.
+- **Owner**: the NeoPixel is driven exclusively from the network task (`NetworkController`), which already tracks the exact Wi-Fi/MQTT connection state that determines the color. It never touches LVGL, so the `loop()`-owns-LVGL rule is unaffected — the strip is plain GPIO, not a display object.
 - **Precedence**: hotspot (red) outranks everything. Otherwise the station state selects among the three remaining colors: no Wi-Fi → blue, Wi-Fi up but MQTT down → orange, both up → green. This cleanly distinguishes a network problem (blue) from a broker problem (orange), which is the most useful field-diagnostic split.
 - **Brightness**: the pixel is run dim (a small fixed duty such as 32/255) so it is legible in daylight but not a distraction in a dark RV at night; it is a status indicator, not illumination.
 - **Single pixel**: only pixel 0 is used; the other four pixels are cleared once at startup and left off. Using the strip as a progress/chase animation (as the reference sketch does) is deliberately not carried over — a static color communicates state more honestly than motion.
@@ -132,6 +132,8 @@ Endpoints (JSON bodies, `Content-Type: application/json`):
 | --- | --- | --- |
 | `GET` | `/api/config` | Return the current running `/config.json` **in full, including the Wi-Fi and MQTT passwords**. Nothing is redacted or hidden.
 | `POST` | `/api/config` | Validate the submitted JSON against the full schema (same validation path as boot-time load, including catalog rules and bounded sizes). On success: write atomically to SPIFFS (write to `/config.json.new`, `SPIFFS.rename()` over `/config.json`), respond `200`, wait ~500 ms so the HTTP response flushes to the client, then restart the device. On failure: respond `400` with a concise error message; the on-flash configuration is untouched. |
+| `GET` | `/api/info` | Return a debugging snapshot: build date/time, chip model/revision, MAC, uptime, free heap, sketch size, and live network state (hotspot active, Wi-Fi/MQTT connected, SSID, IP, RSSI). |
+| `POST` | `/api/restart` | Acknowledge with `200`, then restart after the ~500 ms grace delay. No body required. |
 
 Details:
 
@@ -192,7 +194,7 @@ Additions within the existing `[logging] serial_level` rules:
 ## Implementation Plan
 
 1. Rewrite `src/config_loader.*` as the unified JSON loader (a class-style API producing `AppConfig` + `DisplayCatalog`); delete `src/display_catalog.*`; update `src/main.cpp` includes/call sites.
-2. Rename `src/mqtt_telemetry.*` to `src/network_manager.*` (`MqttTelemetry` → `NetworkManager`); add hotspot mode and AP/station state handling. Add `src/status_led.*` (`StatusLed`, GPIO 48 pixel 0) and drive it from the network-task connection-state transitions. Extend `src/constants.h` with the hotspot, API, and status-LED constants used by both.
-3. Add `src/config_api.*` (`ConfigApi`, the `WebServer`-based GET/POST with full-secret GET, atomic write, and deferred restart), owned and pumped by `NetworkManager`; add a shared "validate JSON document" entry point in the config loader so boot and POST use one code path.
+2. Rename `src/mqtt_telemetry.*` to `src/network_controller.*` (`MqttTelemetry` → `NetworkController`); add hotspot mode and AP/station state handling. Add `src/status_led.*` (`StatusLed`, GPIO 48 pixel 0) and drive it from the network-task connection-state transitions. Extend `src/constants.h` with the hotspot, API, and status-LED constants used by both.
+3. Add `src/config_api.*` (`ConfigApi`, the `WebServer`-based GET/POST with full-secret GET, atomic write, and deferred restart), owned and pumped by `NetworkController`; add a shared "validate JSON document" entry point in the config loader so boot and POST use one code path.
 4. Add `config-example.json`; update README/steering/data docs and `.gitignore`; remove INI/catalog example files.
 5. Build with `~/.platformio/penv/bin/pio run` and fix any errors. Hardware, Wi-Fi, hotspot, API, and status-LED behavior are validated on-device separately; nothing will be claimed as verified unless actually run.

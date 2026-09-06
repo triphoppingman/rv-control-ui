@@ -124,11 +124,19 @@ A minimal HTTP REST API is always exposed — on the hotspot address (`192.168.7
 | --- | --- | --- |
 | `GET` | `/api/config` | Return the running `config.json`, including the Wi-Fi and MQTT passwords. |
 | `POST` | `/api/config` | Validate the body against the full schema, write it to `/config.json` atomically, then restart the device to apply it. |
+| `GET` | `/api/info` | Return a debugging snapshot: build date/time, chip model/revision, MAC, uptime, free heap, sketch size, and live network state (hotspot active, Wi-Fi/MQTT connected, SSID, IP, RSSI). |
+| `POST` | `/api/restart` | Acknowledge with `200`, then restart the device after a short grace delay. No body required. |
 
 Read the current configuration:
 
 ```sh
 curl http://192.168.77.1/api/config
+```
+
+Read the device status snapshot:
+
+```sh
+curl http://192.168.77.1/api/info
 ```
 
 Replace the configuration (the device restarts to apply it):
@@ -139,7 +147,13 @@ curl -X POST -H "Content-Type: application/json" \
 	http://192.168.77.1/api/config
 ```
 
-A `POST` body must satisfy the same validation used at boot; an invalid body returns `400` with a short error and leaves the on-flash configuration untouched. The API is unauthenticated and returns secrets in plaintext, matching the local-only trust model of the private RV network and its unauthenticated MQTT broker — do not expose the device to an untrusted network.
+Restart the device without changing anything:
+
+```sh
+curl -X POST http://192.168.77.1/api/restart
+```
+
+A `POST /api/config` body must satisfy the same validation used at boot; an invalid body returns `400` with a short error and leaves the on-flash configuration untouched. The API is unauthenticated and returns secrets in plaintext, matching the local-only trust model of the private RV network and its unauthenticated MQTT broker — do not expose the device to an untrusted network.
 
 ## Display Catalog
 

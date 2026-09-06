@@ -1,4 +1,4 @@
-#include "network_manager.h"
+#include "network_controller.h"
 
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
@@ -48,9 +48,11 @@ void NetworkController::begin(const AppConfig &config, const DisplayCatalog &cat
     subscriptionTopics_[index] = composeTopic(config_.mqttBaseTopic, catalog_.sources[index].topic);
   }
   activeNetworkController = this;
-  statusLed_.begin();
-  api_.begin(store, config_, catalog_);
-  xTaskCreatePinnedToCore(taskEntry, "network", 8192, this, 1, nullptr, 0);
+  // The status LED and HTTP API are started inside run(), after WiFi.mode() has
+  // brought up lwIP. Starting the WebServer here would create a socket before the
+  // TCP/IP stack exists and crash on a null lwIP queue. The stack is sized for the
+  // WebServer plus the JSON POST parse, which run on this task.
+  xTaskCreatePinnedToCore(taskEntry, "network", 16384, this, 1, nullptr, 0);
 }
 
 /**
@@ -87,7 +89,13 @@ void NetworkController::enterHotspot(const char *reason) {
   const IPAddress address(kHotspotAddressOctet0, kHotspotAddressOctet1, kHotspotAddressOctet2, kHotspotAddressOctet3);
   const IPAddress gateway(kHotspotAddressOctet0, kHotspotAddressOctet1, kHotspotAddressOctet2, kHotspotAddressOctet3);
   const IPAddress netmask(255, 255, 255, 0);
+  // Stop the station driver's auto-reconnect churn and disable power save so the
+  // access point stays up while clients are attached; background station retries
+  // are driven explicitly on the slow cycle below.
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(true);
   WiFi.mode(WIFI_AP_STA);
+  WiFi.setSleep(false);
   WiFi.softAPConfig(address, gateway, netmask);
   WiFi.softAP(ssid, kHotspotPassword);
   Serial.printf("[WARN] Entering setup hotspot (%s); SSID=%s IP=%s\n", reason, ssid,
@@ -100,6 +108,8 @@ void NetworkController::exitHotspot() {
   if (!hotspotActive_) return;
   hotspotActive_ = false;
   WiFi.softAPdisconnect(true);
+  WiFi.setSleep(true);
+  WiFi.setAutoReconnect(true);
   WiFi.mode(WIFI_STA);
   Serial.println("[INFO] Exited setup hotspot; station connected");
   updateStatusLed();
@@ -118,6 +128,24 @@ void NetworkController::updateStatusLed() {
   }
 }
 
+/** @brief Push the live network state to the API's info-endpoint snapshot. */
+void NetworkController::publishNetworkStatus() {
+  NetworkStatus status = {};
+  status.hotspotActive = hotspotActive_;
+  status.wifiConnected = WiFi.status() == WL_CONNECTED;
+  status.mqttConnected = mqttClient.connected();
+  if (hotspotActive_) {
+    strlcpy(status.wifiSsid, WiFi.softAPSSID().c_str(), sizeof(status.wifiSsid));
+    strlcpy(status.ipAddress, WiFi.softAPIP().toString().c_str(), sizeof(status.ipAddress));
+    status.rssi = 0;
+  } else if (status.wifiConnected) {
+    strlcpy(status.wifiSsid, WiFi.SSID().c_str(), sizeof(status.wifiSsid));
+    strlcpy(status.ipAddress, WiFi.localIP().toString().c_str(), sizeof(status.ipAddress));
+    status.rssi = WiFi.RSSI();
+  }
+  api_.setNetworkStatus(status);
+}
+
 /**
  * @brief Maintain Wi-Fi (station or hotspot), the API, and the MQTT subscription.
  *
@@ -128,10 +156,15 @@ void NetworkController::updateStatusLed() {
  * reconfigurable without reprogramming.
  */
 void NetworkController::run() {
+  // WiFi.mode() initializes lwIP; only after it returns may any code open sockets.
   WiFi.mode(WIFI_STA);
   mqttClient.setServer(config_.mqttHost, config_.mqttPort);
   mqttClient.setBufferSize(kMaximumPayloadBytes);
   mqttClient.setCallback(messageReceived);
+
+  // Start the status LED and the always-on configuration API now that lwIP is up.
+  statusLed_.begin();
+  api_.begin(*store_, config_, catalog_);
 
   if (!stationConfigured_) {
     enterHotspot("no station network configured");
@@ -146,6 +179,8 @@ void NetworkController::run() {
     const uint32_t now = millis();
     api_.handleClient();
     api_.serviceRestart();
+    statusLed_.update();
+    publishNetworkStatus();
 
     if (WiFi.status() != WL_CONNECTED) {
       if (wifiWasConnected_) {
@@ -165,6 +200,8 @@ void NetworkController::run() {
         if (!hotspotActive_ && failedAssociationCycles_ >= kWiFiFailedCyclesBeforeHotspot) {
           enterHotspot("station association failed");
         }
+        // While the hotspot is active, retry the station on the slow cycle with a
+        // single begin() and no auto-reconnect churn, so the AP stays up for clients.
         WiFi.begin(config_.wifiSsid, config_.wifiPassword);
         associationStartedAtMilliseconds_ = now;
         updateStatusLed();

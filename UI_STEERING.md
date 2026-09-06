@@ -131,7 +131,7 @@ Use ArduinoJson or another structured parser. Do not extract values through stri
 | `config-example.json` | Tracked placeholder schema for `/config.json`. |
 | `partitions.csv` | Tracked 256 KiB SPIFFS partition allocation. |
 | `src/config_loader.*` | SPIFFS mounting, bounded JSON parsing, validation, typed settings + catalog, and redacted diagnostics. |
-| `src/network_manager.*` | `NetworkController`: Wi-Fi station/hotspot, MQTT reconnects, subscriptions, bounded receive callback, snapshot handoff, and ownership of the API and status LED. |
+| `src/network_controller.*` | `NetworkController`: Wi-Fi station/hotspot, MQTT reconnects, subscriptions, bounded receive callback, snapshot handoff, and ownership of the API and status LED. |
 | `src/config_api.*` | `ConfigApi`: HTTP `WebServer` and the GET/POST `/api/config` handlers. |
 | `src/status_led.*` | `StatusLed`: NeoPixel network status indicator. |
 | `src/constants.h` | All compile-time constants, including hotspot, API, and status-LED values. |

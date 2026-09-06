@@ -8,7 +8,7 @@
 #include "CST816D.h"
 #include "config_loader.h"
 #include "constants.h"
-#include "network_manager.h"
+#include "network_controller.h"
 #include "ui.h"
 
 namespace {

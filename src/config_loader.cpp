@@ -182,7 +182,7 @@ bool parseItem(JsonObjectConst source, const DisplayCatalog &catalog, TelemetryD
       !copyValue(item.icon, sizeof(item.icon), source["icon"]) ||
       !copyValue(item.screen, sizeof(item.screen), source["screen"])) return false;
   const size_t resolvedPaletteIndex = paletteIndex(catalog, item.paletteId);
-  if (resolvedPaletteIndex == catalog.paletteCount) return false;
+  if (resolvedPaletteIndex == kMaximumTelemetryPalettes) return false;
   item.tickLabelColor = catalog.palettes[resolvedPaletteIndex].tickLabelColor;
   item.displayBackground = catalog.palettes[resolvedPaletteIndex].displayBackground;
   item.arcMinimum = source["arc_min"] | 0;

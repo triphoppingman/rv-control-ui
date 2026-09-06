@@ -15,26 +15,33 @@
 enum class StatusLedState : uint8_t { Starting, BrokerDown, Connected, Hotspot };
 
 /**
- * @brief Drives the board's NeoPixel strip as a single network status light.
+ * @brief Drives the board's NeoPixel strip as a network status light.
  *
- * Only pixel 0 is used; the remaining pixels are cleared once at startup. The
- * indicator runs dim so it reads in daylight without glaring in a dark RV, and
- * it stays lit while the display backlight sleeps so the state remains visible
- * when the panel is dark. This class owns plain GPIO and never touches LVGL.
+ * The whole strip is illuminated in the current state color. The indicator
+ * runs dim so it reads in daylight without glaring in a dark RV. Problem and
+ * transitional states (Starting, BrokerDown, Hotspot) stay lit, while the
+ * Connected success state turns the strip off automatically after a short
+ * delay so a healthy device goes dark. This class owns plain GPIO and never
+ * touches LVGL.
  */
 class StatusLed {
  public:
-  /** @brief Construct the strip wrapper for the configured status pin and pixel. */
+  /** @brief Construct the strip wrapper for the configured status pin. */
   StatusLed();
 
   /** @brief Initialize the strip, clear all pixels, and show the starting state. */
   void begin();
 
-  /** @brief Set the indicator color for a new state; repeated same-state calls are no-ops. */
+  /** @brief Set the strip color for a new state; repeated same-state calls are no-ops. */
   void show(StatusLedState state);
+
+  /** @brief Turn the strip off once the Connected auto-off delay has elapsed; call every pass. */
+  void update();
 
  private:
   Adafruit_NeoPixel strip_;
   StatusLedState state_;
   bool begun_;
+  // Set when the Connected state was shown; the strip turns off after the auto-off delay.
+  uint32_t connectedAtMilliseconds_;
 };
