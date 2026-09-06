@@ -141,7 +141,7 @@ Use ArduinoJson or another structured parser. Do not extract values through stri
 
 Use an MQTT subscription rather than periodic application-level polling. `rv-control` already publishes each fresh Renogy reading; subscribing promptly updates the display without the device issuing redundant requests or needing to infer the source poll schedule.
 
-Run Wi-Fi and MQTT connection management in a dedicated FreeRTOS task. That task owns broker reconnects, calls the MQTT client's maintenance loop, receives messages, parses bounded JSON, and atomically replaces the latest `RenogySnapshot` or posts a compact snapshot-ready notification. It must use bounded work and backoff delays while disconnected.
+Run Wi-Fi and MQTT connection management in a dedicated FreeRTOS task. That task owns broker reconnects, calls the MQTT client's maintenance loop, receives messages, parses bounded JSON, and atomically replaces the latest telemetry snapshot or posts a compact snapshot-ready notification. It must use bounded work and backoff delays while disconnected.
 
 The MQTT callback and network task must never touch LVGL. `loop()` is the only place that changes LVGL objects: it consumes the newest snapshot, refreshes the selected value, and calls `lv_timer_handler()`. This preserves the existing encoder queue pattern and keeps the display responsive during Wi-Fi loss and broker reconnects.
 
@@ -185,7 +185,7 @@ Keep generated identifiers semantic and stable. Application behavior belongs in 
 
 1. Add `.gitignore`, `config-example.json`, `data/config.json` handling, `partitions.csv`, and bounded SPIFFS configuration loading before network code.
 2. Add bounded Wi-Fi/MQTT reconnect behavior using validated SPIFFS configuration and verify that LVGL remains responsive during disconnection.
-3. Implement `RenogySnapshot` parsing with serial fixtures: valid, missing field, malformed JSON, and oversized payload.
+3. Implement catalog-driven telemetry snapshot parsing with serial fixtures: valid, missing field, malformed JSON, and oversized payload.
 4. Replace the demo controls with a telemetry-value carousel, preserve the brightness item, and bind a simulated snapshot.
 5. Add selected-value detail and connection-status views; unify encoder and touch navigation around the carousel index.
 6. Connect the dedicated network task to live MQTT and validate against the configured `rv-control` Renogy topic.

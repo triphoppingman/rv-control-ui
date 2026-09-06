@@ -304,22 +304,19 @@ The project has both build-time files in the repository and runtime files upload
 | --- | --- | --- | --- |
 | [`platformio.ini`](platformio.ini) | Board target, flash/PSRAM settings, SPIFFS filesystem, local Arduino library path, and external dependencies | Only for intentional build or board changes | Run a firmware build and upload firmware when needed |
 | [`partitions.csv`](partitions.csv) | Two OTA firmware slots, a 256 KiB SPIFFS partition, and coredump storage | Only when a partition layout change is explicitly needed | Erase/reflash as appropriate; verify the new layout carefully |
-| [`config-example.ini`](config-example.ini) | Safe, tracked template for device configuration | When the runtime configuration schema changes | Update the local `data/config.ini`, then upload SPIFFS |
-| `data/config.ini` | Device-local Wi-Fi, MQTT, display, and logging settings; ignored by Git | Per device or network | `~/.platformio/penv/bin/pio run --target uploadfs` |
-| [display-catalog-example.json](display-catalog-example.json) | Safe, tracked template for catalog sources, visual palettes, and carousel items | When the catalog schema or generic example changes | Copy it to `data/display-catalog.json` before editing for a device |
-| `data/display-catalog.json` | Device-local MQTT source topics, visual palettes, and ordered carousel items; ignored by Git | When changing sources, palettes, or displayed telemetry for a device | `~/.platformio/penv/bin/pio run --target uploadfs` |
-| [`src/config_loader.cpp`](src/config_loader.cpp) | Strict bounded INI parser and defaults | When adding a supported configuration key | Update the template and upload a new filesystem image |
-| [`src/display_catalog.cpp`](src/display_catalog.cpp) | Strict catalog parser and item limits | When extending catalog schema or validation | Update catalog documentation and upload a new filesystem image |
-| [`src/mqtt_telemetry.cpp`](src/mqtt_telemetry.cpp) | Wi-Fi/MQTT lifecycle, allowed topics, JSON validation, and snapshot updates | When changing transport or supported fields | Build and upload firmware |
+| [`config-example.json`](config-example.json) | Safe, tracked template for the unified device configuration (settings + catalog) | When the runtime configuration schema changes | Update the local `data/config.json`, then upload SPIFFS |
+| `data/config.json` | Device-local Wi-Fi, MQTT, display, logging, and catalog; ignored by Git | Per device or network | `~/.platformio/penv/bin/pio run --target uploadfs`, or `POST` it to `/api/config` |
+| [`src/config_loader.cpp`](src/config_loader.cpp) | Bounded JSON parser, schema validation, and defaults for `/config.json` | When adding a supported configuration key or catalog field | Update the template and upload a new filesystem image |
+| [`src/network_controller.cpp`](src/network_controller.cpp) | Wi-Fi station/hotspot, MQTT lifecycle, configuration REST API, and the status LED | When changing transport, the API, or supported fields | Build and upload firmware |
 | [`Arduino/`](Arduino/) | Elecrow-derived hardware reference, libraries, and SquareLine source/export | Only through deliberate hardware or SquareLine work | Preserve the upstream-derived assets and validate the display |
 
-`data/config.ini` is device-local and must not be committed or shared because it contains Wi-Fi and possibly MQTT credentials. Begin with `config-example.ini`; do not put real credentials into documentation, issue reports, or serial logs.
+`data/config.json` is device-local and must not be committed or shared because it contains Wi-Fi and possibly MQTT credentials. Begin with `config-example.json`; do not put real credentials into documentation, issue reports, or serial logs.
 
-The configuration parser rejects malformed syntax, unrecognized keys, oversized values, missing Wi-Fi SSID, missing MQTT host, and missing MQTT base topic. This is preferable to silently connecting with partial settings. It defaults MQTT port to `1883`, expected poll interval to `60`, sleep timeout to `300`, temperature unit to `F`, and serial level to `INFO` only when those optional values are omitted. The former `renogy_topic` and `hughes_topic` keys are ignored only as a migration compatibility measure; new configuration must define no source topics.
+The configuration parser rejects malformed JSON, unrecognized or oversized values, a missing MQTT host or base topic, and any invalid catalog entry. This is preferable to silently connecting with partial settings. It defaults the MQTT port to `1883`, expected poll interval to `60`, sleep timeout to `300`, temperature unit to `F`, and serial level to `INFO` only when those optional values are omitted. An empty `wifi.ssid` is valid and selects the setup hotspot.
 
 The catalog is also all-or-nothing. It accepts one through eight unique `sources`, one through eight unique `palettes`, then up to 16 entries. Each source requires a unique `id` and MQTT `topic`; each palette requires a unique `id` and may override the default tick-label and background colors; every item requires `title`, `carousel_title`, `source`, `palette`, `value_key`, `unit`, `icon`, and `screen`, and must reference declared source and palette IDs. An invalid catalog produces a serial error and is not partially applied.
 
-Changing a file under `data/` does not change the running display until the SPIFFS image is uploaded. A normal `pio run --target upload` uploads only application firmware; use `pio run --target uploadfs` after each `data/config.ini` or `data/display-catalog.json` change, then reset the board if it does not reboot automatically.
+Changing a file under `data/` does not change the running display until the SPIFFS image is uploaded. A normal `pio run --target upload` uploads only application firmware; use `pio run --target uploadfs` after each `data/config.json` change, then reset the board if it does not reboot automatically. You can also update the running device without a USB cable by posting the file to `POST /api/config`, which validates, writes, and restarts it.
 
 ### MQTT Contract and Telemetry Limits
 
@@ -351,8 +348,8 @@ Close the serial monitor before an upload if it holds the port open. Use the sam
 
 ```text
 [INFO] RV Control UI booting
-[INFO] Configuration loaded; MQTT host=... base topic=...
-[INFO] Loaded ... telemetry display definitions
+[INFO] Configuration loaded; MQTT host=... base topic=... items=...
+[INFO] Configuration API listening on port 80
 [INFO] Wi-Fi connected; RSSI=...dBm IP=...
 [INFO] MQTT subscribed to ... catalog source topics
 [INFO] Telemetry snapshot ... received
@@ -372,28 +369,28 @@ Replace `mqtt.local` and `rv` with the configured broker and base topic. This co
 
 - Keep the display read-only. Do not add MQTT publishing, `/set` subscriptions, CAN writes, BLE writes, or hardware control paths unless that is an intentional, separately reviewed change.
 - `loop()` owns LVGL. Encoder, touch interrupt, Wi-Fi, MQTT, and any future background task may queue actions or share copied data, but must not call LVGL APIs.
-- Upload SPIFFS after editing either runtime file under `data/`. The most common configuration surprise is flashing a new application while the board still has an old filesystem image.
-- Keep catalog source `topic` values synchronized with source `topic` values and MQTT `base_topic` in the companion collector. A connected MQTT client with no snapshots usually indicates a topic, broker, payload, or publisher problem rather than a rendering problem.
+- Upload SPIFFS after editing `data/config.json`. The most common configuration surprise is flashing a new application while the board still has an old filesystem image.
+- Keep catalog source `topic` values synchronized with the source `topic` values and MQTT `base_topic` in the companion collector. A connected MQTT client with no snapshots usually indicates a topic, broker, payload, or publisher problem rather than a rendering problem.
 - Preserve the 1024-byte MQTT limit. Expanding source payloads beyond it requires a deliberate firmware change and memory review; do not raise the limit casually on a constrained device.
 - A changed catalog may be valid JSON but still be rejected if it has duplicate or invalid sources/palettes, an item referencing an unknown source/palette, malformed palette colors, too many sources/palettes/items, missing strings, an `arc_min` below `-5000`, an `arc_min` greater than or equal to `arc_max`, an `arc_max` above `5000`, precision above three decimals, or an unsupported font size. Check serial output after every catalog upload.
 - Use `arc_min` and `arc_max` to make the ring meaningful for the measured quantity, such as $90$-$140\text{ V}$ for shore voltage. All telemetry dials use six palette-colored labels derived from their catalog ranges. WiFi Info remains a separate local $0$-$100\%$ RSSI display, and Brightness retains its generated control.
 - New numeric values require only a catalog item with a declared source and matching `value_key`. A missing or nonnumeric JSON property displays `--`.
 - Do not manually edit generated files under `Arduino/libraries/UI/` as a normal workflow. Update the SquareLine source under `Arduino/ui_project/`, export LVGL 9 code, and deliberately synchronize the generated output.
-- The backlight sleep timer turns off PWM only; it does not stop LVGL, erase the current UI, or restart networking. Touch or encoder input restores the selected brightness immediately. Set `sleep_after_seconds = 0` to disable automatic sleep.
-- `show_brightness = 0` hides the Brightness entry but does not disable the configured backlight sleep behavior. `show_wifi = 0` hides the WiFi Info entry but does not disable Wi-Fi or MQTT. Both settings default to `1` and reject values other than `0` or `1`.
+- The backlight sleep timer turns off PWM only; it does not stop LVGL, erase the current UI, or restart networking. Touch or encoder input restores the selected brightness immediately. Set `display.sleep_after_seconds` to `0` to disable automatic sleep.
+- `display.show_brightness` hides the Brightness entry but does not disable the configured backlight sleep behavior. `display.show_wifi` hides the WiFi Info entry but does not disable Wi-Fi or MQTT. Both are booleans and default to `true`.
 - Do not change the board memory flags, partitions, touch/encoder/display pins, or display DMA setup while diagnosing an MQTT problem. Those settings are unrelated to broker connectivity and can obscure the original failure.
 
 ### Troubleshooting
 
 **The board is powered but does not appear as a serial port.** Confirm that the cable supports data, reconnect directly rather than through an unreliable hub, and run `pio device list`. The firmware enables USB CDC on boot through the PlatformIO build flags. If no device appears after replacing the cable and reconnecting, follow Elecrow's [device wiki](https://www.elecrow.com/wiki/CrowPanel_1.28inch-HMI_ESP32_Rotary_Display.html) and, if needed, restore the stock image using [FLASH_FACTORY_FIRMWARE.md](FLASH_FACTORY_FIRMWARE.md).
 
-**The serial log reports `/config.ini is missing`, an invalid size, malformed syntax, or an invalid setting.** Copy [`config-example.ini`](config-example.ini) to `data/config.ini`, confirm that all section/key names are spelled exactly as shown, and upload the filesystem image. The parser does not ignore unknown keys, and all values must fit its fixed bounds. Ensure the file is below 4096 bytes.
+**The serial log reports `/config.json is missing`, an invalid size, malformed JSON, or a validation error.** Copy [`config-example.json`](config-example.json) to `data/config.json`, confirm the section and key names match the schema, and upload the filesystem image. Unknown catalog references (an item naming an undeclared `source` or `palette`) are rejected, and all string values must fit their fixed bounds. Ensure the file is within the configured size cap.
 
 **The serial log reports `SPIFFS mount failed`.** Confirm that [`partitions.csv`](partitions.csv) remains selected by [`platformio.ini`](platformio.ini), rebuild, and upload both the filesystem and firmware. A board previously flashed with an incompatible partition layout may need a careful erase/reflash procedure; preserve any required device-local configuration before doing that.
 
-**The carousel has only Brightness and WiFi Info, or the log says the display catalog is unavailable.** Validate local `data/display-catalog.json` as JSON, verify its `sources` and `items` arrays are nonempty, and confirm every item `source` refers to a declared source ID. Recreate it from [display-catalog-example.json](display-catalog-example.json) if needed, customize it for the collector, and upload SPIFFS after correcting it. The catalog must be under 8192 bytes and contain no more than eight sources and 16 telemetry entries.
+**The carousel has only Brightness and WiFi Info, or the log says the configuration catalog is invalid.** Validate local `data/config.json` as JSON, verify its `catalog.sources`, `catalog.palettes`, and `catalog.items` arrays are nonempty, and confirm every item `source` and `palette` refers to a declared ID. Recreate the catalog from [`config-example.json`](config-example.json) if needed, customize it for the collector, and upload SPIFFS (or `POST /api/config`) after correcting it. The catalog supports up to eight sources, eight palettes, and 16 telemetry entries.
 
-**Wi-Fi never connects.** Verify `ssid` and `password` in local `data/config.ini`, use a 2.4 GHz network compatible with the ESP32-S3, and review the periodic `Connecting to Wi-Fi` status in the serial monitor. The firmware retries every 20 seconds. The WiFi Info carousel screen shows connection state, RSSI, SSID, and assigned IP when connected.
+**Wi-Fi never connects.** Verify `wifi.ssid` and `wifi.password` in local `data/config.json`, use a 2.4 GHz network compatible with the ESP32-S3, and watch the status LED: blue while associating, red once it falls back to the `rv-control-ui-XXXX` setup hotspot (about 60 seconds of failed attempts). Join the hotspot and use the API at `http://192.168.77.1` to correct the credentials, or fix `data/config.json` and upload SPIFFS. The WiFi Info carousel screen shows connection state, RSSI, SSID, and assigned IP when connected.
 
 **Wi-Fi connects but MQTT fails.** Verify `host`, `port`, and optional credentials; then test the broker from another machine on the same network. The serial log prints an MQTT client state code on failure and retries every 5 seconds. Check firewall rules, broker listener bindings, TLS expectations (this firmware's current client setup is plain MQTT), and that the display can resolve the configured hostname.
 
