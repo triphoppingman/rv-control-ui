@@ -3,6 +3,8 @@
 # ---------------------------------------------------------------------------
 # Device-specific SPIFFS files remain local. Their root-level example templates
 # are tracked as safe starting points.
+data/config.json
+# Legacy pre-JSON configuration files, ignored defensively if they reappear locally.
 data/config.ini
 data/display-catalog.json
 

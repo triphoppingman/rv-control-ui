@@ -8,8 +8,7 @@
 #include "CST816D.h"
 #include "config_loader.h"
 #include "constants.h"
-#include "display_catalog.h"
-#include "mqtt_telemetry.h"
+#include "network_manager.h"
 #include "ui.h"
 
 namespace {
@@ -131,12 +130,13 @@ volatile uint8_t clickCount = 0;
 int lastEncoderClockState = LOW;
 size_t selectedItemIndex = 0;
 
-// Settings read once from /config.ini before the future Wi-Fi and MQTT task starts.
+// Settings and catalog read once from /config.json before the network task starts.
 AppConfig appConfig = {};
 DisplayCatalog displayCatalog = {};
+ConfigStore configStore;
 
-// The separate network task owns Wi-Fi/MQTT; loop() later copies its snapshots for LVGL.
-MqttTelemetry mqttTelemetry;
+// The separate network task owns Wi-Fi/hotspot, MQTT, the config API, and the status LED.
+NetworkController networkController;
 uint32_t lastTelemetrySequence = 0;
 
 // The UI-loop-owned snapshot copied from the network task before rendering labels or arcs.
@@ -593,10 +593,15 @@ void initializeWiFiSignalLabel() {
  * network activity or logs the displayed SSID.
  */
 void refreshWiFiInfo() {
-	const bool connected = WiFi.status() == WL_CONNECTED;
+	const bool hotspot = (WiFi.getMode() & WIFI_MODE_AP) != 0 && WiFi.softAPgetStationNum() >= 0 &&
+								 WiFi.softAPIP() != IPAddress(0, 0, 0, 0);
+	const bool connected = !hotspot && WiFi.status() == WL_CONNECTED;
 	char signalText[16];
 	int signalPercent = 0;
-	if (connected) {
+	if (hotspot) {
+		strlcpy(signalText, "Setup", sizeof(signalText));
+		signalPercent = 100;
+	} else if (connected) {
 		const int rssi = WiFi.RSSI();
 		// -100 dBm is effectively unusable and -40 dBm is a strong nearby signal.
 		signalPercent = constrain(((rssi + 100) * 100) / 60, 0, 100);
@@ -621,7 +626,10 @@ void refreshWiFiInfo() {
 	lv_image_set_src(ui_Image3, nullptr);
 	lv_obj_add_flag(ui_Image3, LV_OBJ_FLAG_HIDDEN);
 	initializeWiFiInfoLabel();
-	if (connected) {
+	if (hotspot) {
+		lv_label_set_text_fmt(wifiInfoDetailLabel, "Hotspot: %s\nIP: %s", WiFi.softAPSSID().c_str(),
+								  WiFi.softAPIP().toString().c_str());
+	} else if (connected) {
 		const String ipAddress = WiFi.localIP().toString();
 		lv_label_set_text_fmt(wifiInfoDetailLabel, "SSID: %s\nIP: %s", WiFi.SSID().c_str(), ipAddress.c_str());
 	} else {
@@ -829,22 +837,19 @@ void setup() {
 	delay(100);
 	Serial.println("[INFO] RV Control UI booting");
 	char configurationError[128] = {};
-	const bool configurationLoaded = loadAppConfig(appConfig, configurationError, sizeof(configurationError));
+	const bool configurationLoaded = configStore.load(appConfig, displayCatalog, configurationError, sizeof(configurationError));
 	if (configurationLoaded) {
-		Serial.printf("[INFO] Configuration loaded; MQTT host=%s base topic=%s\n", appConfig.mqttHost, appConfig.mqttBaseTopic);
+		Serial.printf("[INFO] Configuration loaded; MQTT host=%s base topic=%s items=%u\n", appConfig.mqttHost,
+					  appConfig.mqttBaseTopic, static_cast<unsigned>(displayCatalog.itemCount));
 	} else {
 		Serial.printf("[ERROR] Configuration unavailable: %s\n", configurationError);
-	}
-	char catalogError[128] = {};
-	if (configurationLoaded && loadDisplayCatalog(displayCatalog, catalogError, sizeof(catalogError))) {
-		Serial.printf("[INFO] Loaded %u telemetry display definitions\n", static_cast<unsigned>(displayCatalog.itemCount));
-	} else {
-		Serial.printf("[ERROR] Display catalog unavailable: %s\n", catalogError[0] ? catalogError : "configuration unavailable");
 	}
 	initializeCarouselItems();
 	initializeHardware();
 	lastUserActivityMilliseconds = millis();
-	if (configurationLoaded && displayCatalog.itemCount > 0) mqttTelemetry.begin(appConfig, displayCatalog);
+	// The network task always runs so the configuration API and setup hotspot stay
+	// available even when the saved configuration is missing or invalid.
+	networkController.begin(appConfig, displayCatalog, configStore);
 }
 
 /**
@@ -863,7 +868,7 @@ void loop() {
 		else returnToCarousel();
 	}
 	TelemetrySnapshot snapshot;
-	if (mqttTelemetry.copyLatestSnapshot(snapshot) && snapshot.sequence != lastTelemetrySequence) {
+	if (networkController.copyLatestSnapshot(snapshot) && snapshot.sequence != lastTelemetrySequence) {
 		latestSnapshot = snapshot;
 		hasTelemetrySnapshot = true;
 		lastTelemetrySequence = snapshot.sequence;
