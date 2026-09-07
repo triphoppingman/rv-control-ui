@@ -6,6 +6,21 @@
 #include <stdio.h>
 #include <string.h>
 
+AppConfig &AppConfig::instance() {
+  static AppConfig config = {};
+  return config;
+}
+
+DisplayCatalog &DisplayCatalog::instance() {
+  static DisplayCatalog catalog = {};
+  return catalog;
+}
+
+ConfigStore &ConfigStore::instance() {
+  static ConfigStore store;
+  return store;
+}
+
 namespace {
 
 using rv_control_ui::constants::kConfigFilePath;

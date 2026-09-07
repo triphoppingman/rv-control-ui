@@ -15,6 +15,9 @@
  * selects hotspot-only operation.
  */
 struct AppConfig {
+  /** @brief Return the one application-wide configuration populated at boot. */
+  static AppConfig &instance();
+
   char wifiSsid[33];
   char wifiPassword[65];
   char mqttHost[128];
@@ -69,6 +72,9 @@ struct TelemetryDisplayDefinition {
 
 /** @brief Fixed-capacity list of MQTT-backed definitions parsed at startup. */
 struct DisplayCatalog {
+  /** @brief Return the one application-wide catalog populated at boot. */
+  static DisplayCatalog &instance();
+
   TelemetrySourceDefinition sources[rv_control_ui::constants::kMaximumTelemetrySources];
   size_t sourceCount;
   TelemetryPaletteDefinition palettes[rv_control_ui::constants::kMaximumTelemetryPalettes];
@@ -88,6 +94,9 @@ struct DisplayCatalog {
  */
 class ConfigStore {
  public:
+  /** @brief Return the one configuration-store service used by the firmware. */
+  static ConfigStore &instance();
+
   /**
    * @brief Mount SPIFFS and load the validated /config.json file.
    *
@@ -126,4 +135,8 @@ class ConfigStore {
    * @param document Receives the JSON representation.
    */
   void toJson(const AppConfig &config, const DisplayCatalog &catalog, ArduinoJson::JsonDocument &document);
+
+ private:
+  /** @brief Construct the singleton; use instance() to access configuration storage. */
+  ConfigStore() = default;
 };

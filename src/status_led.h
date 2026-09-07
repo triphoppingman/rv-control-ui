@@ -26,8 +26,8 @@ enum class StatusLedState : uint8_t { Starting, BrokerDown, Connected, Hotspot }
  */
 class StatusLed {
  public:
-  /** @brief Construct the strip wrapper for the configured status pin. */
-  StatusLed();
+  /** @brief Return the one physical status indicator present on the board. */
+  static StatusLed &instance();
 
   /** @brief Initialize the strip, clear all pixels, and show the starting state. */
   void begin();
@@ -39,6 +39,9 @@ class StatusLed {
   void update();
 
  private:
+  /** @brief Construct the singleton; use instance() to access the status indicator. */
+  StatusLed();
+
   Adafruit_NeoPixel strip_;
   StatusLedState state_;
   bool begun_;

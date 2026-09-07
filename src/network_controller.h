@@ -45,13 +45,19 @@ struct TelemetrySnapshot {
  */
 class NetworkController {
  public:
-  /** @brief Start the background network task using validated settings and catalog. */
-  void begin(const AppConfig &config, const DisplayCatalog &catalog, ConfigStore &store);
+  /** @brief Return the one network owner used by the firmware. */
+  static NetworkController &instance();
+
+  /** @brief Start the background network task using the loaded singleton configuration. */
+  void begin();
 
   /** @brief Copy the latest parsed snapshot and return false until one is available. */
   bool copyLatestSnapshot(TelemetrySnapshot &snapshot);
 
  private:
+  /** @brief Construct the singleton; use instance() to access network services. */
+  NetworkController() = default;
+
   /** @brief FreeRTOS task entry point that forwards to the owning instance. */
   static void taskEntry(void *parameter);
 
@@ -79,17 +85,8 @@ class NetworkController {
   /** @brief Copy one numeric JSON property when present and finite. */
   static TelemetryValue readValue(const ArduinoJson::JsonObjectConst &object, const char *name);
 
-  // Task-owned connection settings copied at startup from the validated config file.
-  AppConfig config_ = {};
-
-  // Catalog and normalized subscriptions are copied before the network task starts.
-  DisplayCatalog catalog_ = {};
+  // Subscriptions are normalized once before the network task starts.
   String subscriptionTopics_[rv_control_ui::constants::kMaximumTelemetrySources];
-
-  // The configuration API and status LED are owned by this task, never by LVGL.
-  ConfigStore *store_ = nullptr;
-  ConfigApi api_;
-  StatusLed statusLed_;
 
   // Hotspot and station-state tracking for the fallback and status LED.
   bool hotspotActive_ = false;

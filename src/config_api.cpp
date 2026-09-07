@@ -21,10 +21,12 @@ char gPostBody[kMaximumConfigBytes + 1];
 
 }  // namespace
 
-void ConfigApi::begin(ConfigStore &store, const AppConfig &config, const DisplayCatalog &catalog) {
-  store_ = &store;
-  config_ = &config;
-  catalog_ = &catalog;
+ConfigApi &ConfigApi::instance() {
+  static ConfigApi api;
+  return api;
+}
+
+void ConfigApi::begin() {
   restartPending_ = false;
   restartAtMilliseconds_ = 0;
   postBodyLength_ = 0;
@@ -54,7 +56,7 @@ void ConfigApi::serviceRestart() {
 
 void ConfigApi::handleGetConfig() {
   JsonDocument document;
-  store_->toJson(*config_, *catalog_, document);
+  ConfigStore::instance().toJson(AppConfig::instance(), DisplayCatalog::instance(), document);
   String body;
   serializeJson(document, body);
   server_.send(200, "application/json", body);
@@ -97,7 +99,8 @@ void ConfigApi::handlePostConfig() {
   AppConfig candidateConfig = {};
   DisplayCatalog candidateCatalog = {};
   char validationError[128] = {};
-  if (!store_->validateDocument(document, candidateConfig, candidateCatalog, validationError, sizeof(validationError))) {
+  if (!ConfigStore::instance().validateDocument(document, candidateConfig, candidateCatalog, validationError,
+                                                 sizeof(validationError))) {
     sendError(400, validationError[0] ? validationError : "configuration failed validation");
     return;
   }

@@ -30,14 +30,14 @@ struct NetworkStatus {
  */
 class ConfigApi {
  public:
+  /** @brief Return the one configuration API server used by the network task. */
+  static ConfigApi &instance();
+
   /**
    * @brief Start the HTTP server and register the endpoints.
    *
-   * @param store The configuration store used for validation and serialization.
-   * @param config The running typed configuration returned by GET.
-   * @param catalog The running typed catalog returned by GET.
    */
-  void begin(ConfigStore &store, const AppConfig &config, const DisplayCatalog &catalog);
+  void begin();
 
   /** @brief Service one pending HTTP client; call on every network-task pass. */
   void handleClient();
@@ -49,6 +49,9 @@ class ConfigApi {
   void setNetworkStatus(const NetworkStatus &status);
 
  private:
+  /** @brief Construct the singleton; use instance() to access the API server. */
+  ConfigApi() = default;
+
   /** @brief Return the running configuration as JSON, secrets included. */
   void handleGetConfig();
 
@@ -71,9 +74,6 @@ class ConfigApi {
   bool writeConfigAtomically(const String &body);
 
   WebServer server_;
-  ConfigStore *store_;
-  const AppConfig *config_;
-  const DisplayCatalog *catalog_;
   bool restartPending_;
   uint32_t restartAtMilliseconds_;
   NetworkStatus networkStatus_ = {};

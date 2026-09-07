@@ -14,9 +14,6 @@ using namespace rv_control_ui::constants;
 constexpr size_t kMaximumPayloadBytes = 1024;
 constexpr uint32_t kReconnectIntervalMilliseconds = 5000;
 
-// A single application instance owns the PubSubClient callback required by its C-style API.
-NetworkController *activeNetworkController = nullptr;
-
 // PubSubClient is used exclusively by the dedicated network task.
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
@@ -39,15 +36,18 @@ String composeTopic(const char *baseTopic, const char *suffix) {
  * variables. The task never calls LVGL and can reconnect while the UI remains
  * interactive on the Arduino loop thread.
  */
-void NetworkController::begin(const AppConfig &config, const DisplayCatalog &catalog, ConfigStore &store) {
-  config_ = config;
-  catalog_ = catalog;
-  store_ = &store;
-  stationConfigured_ = config_.wifiSsid[0] != '\0';
-  for (size_t index = 0; index < catalog_.sourceCount; ++index) {
-    subscriptionTopics_[index] = composeTopic(config_.mqttBaseTopic, catalog_.sources[index].topic);
+NetworkController &NetworkController::instance() {
+  static NetworkController controller;
+  return controller;
+}
+
+void NetworkController::begin() {
+  const AppConfig &config = AppConfig::instance();
+  const DisplayCatalog &catalog = DisplayCatalog::instance();
+  stationConfigured_ = config.wifiSsid[0] != '\0';
+  for (size_t index = 0; index < catalog.sourceCount; ++index) {
+    subscriptionTopics_[index] = composeTopic(config.mqttBaseTopic, catalog.sources[index].topic);
   }
-  activeNetworkController = this;
   // The status LED and HTTP API are started inside run(), after WiFi.mode() has
   // brought up lwIP. Starting the WebServer here would create a socket before the
   // TCP/IP stack exists and crash on a null lwIP queue. The stack is sized for the
@@ -118,13 +118,13 @@ void NetworkController::exitHotspot() {
 /** @brief Refresh the status LED from the current hotspot/Wi-Fi/MQTT state. */
 void NetworkController::updateStatusLed() {
   if (hotspotActive_) {
-    statusLed_.show(StatusLedState::Hotspot);
+    StatusLed::instance().show(StatusLedState::Hotspot);
   } else if (WiFi.status() != WL_CONNECTED) {
-    statusLed_.show(StatusLedState::Starting);
+    StatusLed::instance().show(StatusLedState::Starting);
   } else if (!mqttClient.connected()) {
-    statusLed_.show(StatusLedState::BrokerDown);
+    StatusLed::instance().show(StatusLedState::BrokerDown);
   } else {
-    statusLed_.show(StatusLedState::Connected);
+    StatusLed::instance().show(StatusLedState::Connected);
   }
 }
 
@@ -143,7 +143,7 @@ void NetworkController::publishNetworkStatus() {
     strlcpy(status.ipAddress, WiFi.localIP().toString().c_str(), sizeof(status.ipAddress));
     status.rssi = WiFi.RSSI();
   }
-  api_.setNetworkStatus(status);
+  ConfigApi::instance().setNetworkStatus(status);
 }
 
 /**
@@ -158,28 +158,30 @@ void NetworkController::publishNetworkStatus() {
 void NetworkController::run() {
   // WiFi.mode() initializes lwIP; only after it returns may any code open sockets.
   WiFi.mode(WIFI_STA);
-  mqttClient.setServer(config_.mqttHost, config_.mqttPort);
+  const AppConfig &config = AppConfig::instance();
+  const DisplayCatalog &catalog = DisplayCatalog::instance();
+  mqttClient.setServer(config.mqttHost, config.mqttPort);
   mqttClient.setBufferSize(kMaximumPayloadBytes);
   mqttClient.setCallback(messageReceived);
 
   // Start the status LED and the always-on configuration API now that lwIP is up.
-  statusLed_.begin();
-  api_.begin(*store_, config_, catalog_);
+  StatusLed::instance().begin();
+  ConfigApi::instance().begin();
 
   if (!stationConfigured_) {
     enterHotspot("no station network configured");
   } else {
     Serial.printf("[INFO] Connecting to Wi-Fi\n");
-    WiFi.begin(config_.wifiSsid, config_.wifiPassword);
+    WiFi.begin(config.wifiSsid, config.wifiPassword);
     associationStartedAtMilliseconds_ = millis();
     updateStatusLed();
   }
 
   while (true) {
     const uint32_t now = millis();
-    api_.handleClient();
-    api_.serviceRestart();
-    statusLed_.update();
+    ConfigApi::instance().handleClient();
+    ConfigApi::instance().serviceRestart();
+    StatusLed::instance().update();
     publishNetworkStatus();
 
     if (WiFi.status() != WL_CONNECTED) {
@@ -188,7 +190,7 @@ void NetworkController::run() {
         mqttWasConnected_ = false;
         Serial.printf("[WARN] Wi-Fi disconnected; status=%d\n", WiFi.status());
         if (stationConfigured_) {
-          WiFi.begin(config_.wifiSsid, config_.wifiPassword);
+          WiFi.begin(config.wifiSsid, config.wifiPassword);
           associationStartedAtMilliseconds_ = now;
         }
         updateStatusLed();
@@ -202,7 +204,7 @@ void NetworkController::run() {
         }
         // While the hotspot is active, retry the station on the slow cycle with a
         // single begin() and no auto-reconnect churn, so the AP stays up for clients.
-        WiFi.begin(config_.wifiSsid, config_.wifiPassword);
+        WiFi.begin(config.wifiSsid, config.wifiPassword);
         associationStartedAtMilliseconds_ = now;
         updateStatusLed();
       }
@@ -222,9 +224,9 @@ void NetworkController::run() {
     if (!mqttClient.connected() && now - lastMqttAttempt_ >= kReconnectIntervalMilliseconds) {
       lastMqttAttempt_ = now;
       String clientId = "rv-control-ui-" + String(static_cast<uint32_t>(ESP.getEfuseMac()), HEX);
-      const bool connected = config_.mqttUsername[0] == '\0'
+      const bool connected = config.mqttUsername[0] == '\0'
                     ? mqttClient.connect(clientId.c_str())
-                    : mqttClient.connect(clientId.c_str(), config_.mqttUsername, config_.mqttPassword);
+            : mqttClient.connect(clientId.c_str(), config.mqttUsername, config.mqttPassword);
       if (!connected) {
         Serial.printf("[WARN] MQTT connection failed; state=%d\n", mqttClient.state());
         if (mqttWasConnected_) {
@@ -233,11 +235,11 @@ void NetworkController::run() {
         }
       } else {
         bool subscribed = true;
-        for (size_t index = 0; index < catalog_.sourceCount; ++index) {
+        for (size_t index = 0; index < catalog.sourceCount; ++index) {
           if (!mqttClient.subscribe(subscriptionTopics_[index].c_str())) subscribed = false;
         }
         if (subscribed) {
-          Serial.printf("[INFO] MQTT subscribed to %u catalog source topics\n", static_cast<unsigned>(catalog_.sourceCount));
+          Serial.printf("[INFO] MQTT subscribed to %u catalog source topics\n", static_cast<unsigned>(catalog.sourceCount));
           if (!mqttWasConnected_) {
             mqttWasConnected_ = true;
             updateStatusLed();
@@ -258,13 +260,13 @@ void NetworkController::run() {
 }
 
 /**
- * @brief Forward the PubSubClient callback to the active application instance.
+ * @brief Forward the PubSubClient callback to the fixed network-service instance.
  *
  * PubSubClient has no per-instance callback context. The firmware deliberately
  * has one network owner, so this forwarding point is safe and concise.
  */
 void NetworkController::messageReceived(char *topic, uint8_t *payload, unsigned int length) {
-  if (activeNetworkController) activeNetworkController->processMessage(topic, payload, length);
+  NetworkController::instance().processMessage(topic, payload, length);
 }
 
 /**
@@ -275,14 +277,15 @@ void NetworkController::messageReceived(char *topic, uint8_t *payload, unsigned 
  * can expose different telemetry sets.
  */
 void NetworkController::processMessage(const char *topic, const uint8_t *payload, size_t length) {
-  size_t sourceIndex = catalog_.sourceCount;
-  for (size_t index = 0; index < catalog_.sourceCount; ++index) {
+  const DisplayCatalog &catalog = DisplayCatalog::instance();
+  size_t sourceIndex = catalog.sourceCount;
+  for (size_t index = 0; index < catalog.sourceCount; ++index) {
     if (subscriptionTopics_[index] == topic) {
       sourceIndex = index;
       break;
     }
   }
-  if (sourceIndex == catalog_.sourceCount) return;
+  if (sourceIndex == catalog.sourceCount) return;
   if (length == 0 || length > kMaximumPayloadBytes) {
     Serial.printf("[WARN] Ignoring MQTT payload with invalid size: %u\n", static_cast<unsigned>(length));
     return;
@@ -300,9 +303,9 @@ void NetworkController::processMessage(const char *topic, const uint8_t *payload
   portENTER_CRITICAL(&snapshotLock_);
   next = snapshot_;
   portEXIT_CRITICAL(&snapshotLock_);
-  for (size_t index = 0; index < catalog_.itemCount; ++index) {
-    if (strcmp(catalog_.items[index].sourceId, catalog_.sources[sourceIndex].id) == 0) {
-      next.values[index] = readValue(object, catalog_.items[index].valueKey);
+  for (size_t index = 0; index < catalog.itemCount; ++index) {
+    if (strcmp(catalog.items[index].sourceId, catalog.sources[sourceIndex].id) == 0) {
+      next.values[index] = readValue(object, catalog.items[index].valueKey);
     }
   }
   next.receivedAtMilliseconds = millis();

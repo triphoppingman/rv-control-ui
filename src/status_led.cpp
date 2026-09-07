@@ -16,6 +16,11 @@ uint32_t statusColor(uint8_t red, uint8_t green, uint8_t blue) {
 
 }  // namespace
 
+StatusLed &StatusLed::instance() {
+  static StatusLed statusLed;
+  return statusLed;
+}
+
 StatusLed::StatusLed()
     : strip_(kStatusLedCount, kStatusLedPin, NEO_GRB + NEO_KHZ800),
       state_(StatusLedState::Starting),
