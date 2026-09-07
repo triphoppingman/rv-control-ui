@@ -170,3 +170,24 @@ one is visible on the shared generated detail screen.
   values.
 - Upload `data/config.json` with `~/.platformio/penv/bin/pio run --target uploadfs`
   after changing catalog configuration. Changes take effect after restart.
+
+## TODO: Future Renderer Modes
+
+- `StatusDetailRenderer`: Present discrete inverter, charger, transfer-switch,
+  connectivity, or fault states as a large state label, matching icon/color,
+  and last-update age. This requires a typed string or enum telemetry model;
+  the current `TelemetryValue` model accepts numeric fields only.
+- `GaugeClusterRenderer`: Present one dominant value with related supporting
+  values, such as battery state of charge with voltage, signed current, and
+  power. Add a grouped catalog contract that explicitly references the required
+  existing `value_key` fields, following the `power_flow` pattern.
+- `DurationRenderer`: Present elapsed time such as snapshot age, charge time,
+  generator runtime, or outage duration. Prefer existing snapshot or connection
+  timestamps rather than creating periodic flash-backed state.
+- `EventTimelineRenderer`: Present recent source-state transitions, faults,
+  reconnects, or generator events. Add only when the collector publishes real
+  transition events; do not infer events from ordinary numeric snapshots.
+- `DistributionRenderer`: Present related contributions as a compact stacked
+  bar. Defer this until the upstream contract defines a reliable total and
+  compatible component values, so the UI does not imply a conservation rule
+  the telemetry cannot guarantee.
