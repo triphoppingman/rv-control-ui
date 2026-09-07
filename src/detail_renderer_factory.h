@@ -1,10 +1,12 @@
 #pragma once
 
 #include "bar_detail_renderer.h"
+#include "brightness_detail_renderer.h"
 #include "chart_detail_renderer.h"
 #include "dial_detail_renderer.h"
 #include "power_flow_renderer.h"
 #include "threshold_detail_renderer.h"
+#include "wifi_detail_renderer.h"
 
 struct CarouselItem;
 
@@ -26,6 +28,8 @@ class DetailRendererFactory {
 
  private:
 	DialDetailRenderer dialRenderer_;
+	BrightnessDetailRenderer brightnessRenderer_;
+	WifiDetailRenderer wifiRenderer_;
 	ChartDetailRenderer chartRenderers_[rv_control_ui::constants::kMaximumTelemetryDisplays];
 	BarDetailRenderer barRenderers_[rv_control_ui::constants::kMaximumTelemetryDisplays];
 	ThresholdDetailRenderer thresholdRenderers_[rv_control_ui::constants::kMaximumTelemetryDisplays];

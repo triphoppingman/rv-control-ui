@@ -28,8 +28,6 @@ struct AppConfig {
   char temperatureUnit[4];
   uint16_t expectedPollIntervalSeconds;
   uint16_t sleepAfterSeconds;
-  bool showBrightness;
-  bool showWifi;
   char serialLevel[8];
 };
 
@@ -51,7 +49,7 @@ struct TelemetryPaletteDefinition {
 };
 
 /** @brief Supported presentation modes for a telemetry detail screen. */
-enum class TelemetryDisplayMode : uint8_t { Dial, Chart, Bar, Threshold, PowerFlow };
+enum class TelemetryDisplayMode : uint8_t { Dial, Chart, Bar, Threshold, PowerFlow, Brightness, Wifi };
 
 /**
  * @brief One read-only MQTT display definition from the configuration catalog.

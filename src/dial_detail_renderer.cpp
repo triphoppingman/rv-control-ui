@@ -34,21 +34,23 @@ void DialDetailRenderer::render(const CarouselItem &item, const TelemetrySnapsho
 		lv_obj_set_style_bg_image_src(ui_Screen3, backgroundImageFor(item), LV_PART_MAIN | LV_STATE_DEFAULT);
 		lv_obj_set_style_bg_color(ui_Screen3, lv_color_hex(item.displayBackground), LV_PART_MAIN | LV_STATE_DEFAULT);
 		lv_label_set_text(ui_Label8, item.title);
-		lv_label_set_text(ui_TempNum, text);
+		UiController::instance().setDialValue(ui_TempNum, text, item.fontSize);
 		lv_arc_set_range(ui_TempArc, item.arcMinimum, item.arcMaximum);
 		lv_arc_set_value(ui_TempArc, value);
 		lv_obj_remove_flag(ui_TempArc, LV_OBJ_FLAG_CLICKABLE);
+		UiController::instance().updateTemperatureTickLabels();
 	} else {
 		lv_obj_set_style_bg_image_src(ui_Screen2, backgroundImageFor(item), LV_PART_MAIN | LV_STATE_DEFAULT);
 		lv_obj_set_style_bg_color(ui_Screen2, lv_color_hex(item.displayBackground), LV_PART_MAIN | LV_STATE_DEFAULT);
 		lv_obj_remove_flag(ui_VolNum, LV_OBJ_FLAG_HIDDEN);
 		lv_obj_remove_flag(ui_VolumeArc, LV_OBJ_FLAG_HIDDEN);
 		lv_label_set_text(ui_Label4, item.title);
-		lv_label_set_text(ui_VolNum, text);
+		UiController::instance().setDialValue(ui_VolNum, text, item.fontSize);
 		lv_arc_set_range(ui_VolumeArc, item.arcMinimum, item.arcMaximum);
 		lv_arc_set_value(ui_VolumeArc, value);
 		lv_obj_remove_flag(ui_VolumeArc, LV_OBJ_FLAG_CLICKABLE);
 		lv_obj_add_flag(ui_Image3, LV_OBJ_FLAG_HIDDEN);
+		UiController::instance().updateElectricalTickLabels();
 	}
 }
 

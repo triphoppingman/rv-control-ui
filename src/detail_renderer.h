@@ -15,6 +15,15 @@ class DetailRenderer {
 	/** @brief Hide renderer-owned LVGL objects before another detail renderer is shown. */
 	virtual void hide() = 0;
 
+	/** @brief Refresh device-local detail state while this renderer remains active. */
+	virtual void update() {}
+
+	/** @brief Apply a rotary adjustment when this renderer owns the active screen. */
+	virtual bool handleRotation(bool clockwise) {
+		(void)clockwise;
+		return false;
+	}
+
  protected:
 	/** @brief Format one current telemetry value consistently across every detail renderer. */
 	static void formatCurrentValue(const CarouselItem &item, const TelemetrySnapshot &snapshot, bool hasSnapshot,

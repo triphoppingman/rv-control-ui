@@ -18,8 +18,6 @@ struct CarouselItem {
 	size_t telemetryIndex;
 	CarouselIcon icon;
 	bool usesTemperatureScreen;
-	bool controlsBrightness;
-	bool showsWiFiInfo;
 	int arcMinimum;
 	int arcMaximum;
 	uint32_t tickLabelColor;
@@ -56,9 +54,6 @@ class UiController {
 
 	/** @brief Build carousel items from the singleton telemetry catalog and local settings. */
 	void initializeCarousel();
-
-	/** @brief Register the generated brightness control callback after SquareLine initialization. */
-	void registerGeneratedCallbacks();
 
 	/** @brief Create generated screens and initialize application-owned UI layers. */
 	void initializeGeneratedUi();
@@ -102,12 +97,6 @@ class UiController {
 	/** @brief Return the copied telemetry snapshot owned by the UI loop. */
 	const TelemetrySnapshot &latestSnapshot() const;
 
-	/** @brief Return true once per second while the Wi-Fi detail view needs refreshing. */
-	bool shouldRefreshWiFiInfo();
-
-	/** @brief Render the current board Wi-Fi state on the generated detail screen. */
-	void refreshWiFiInfo();
-
 	/** @brief Update the active electrical detail dial's catalog-driven tick labels. */
 	void updateElectricalTickLabels();
 
@@ -123,9 +112,13 @@ class UiController {
 	/** @brief Apply the current SquareLine brightness-arc value to the display. */
 	void handleBrightnessChanged(lv_event_t *event);
 
+	/** @brief Return the user-selected display brightness for its detail renderer. */
+	uint8_t brightnessPercent() const;
+
  private:
 	/** @brief Construct the singleton; startup supplies its hardware dependency through begin(). */
 	UiController() = default;
+	friend class DialDetailRenderer;
 
 	ElecrowCrowPanelDisplay *display_ = nullptr;
 	CarouselItem carouselItems_[rv_control_ui::constants::kMaximumCarouselItems] = {};
@@ -138,26 +131,17 @@ class UiController {
 	TelemetrySnapshot latestSnapshot_ = {};
 	uint32_t lastTelemetrySequence_ = 0;
 	bool hasTelemetrySnapshot_ = false;
-	uint32_t lastWiFiInfoRefreshMilliseconds_ = 0;
-	lv_obj_t *wifiSignalDetailLabel_ = nullptr;
-	lv_obj_t *wifiInfoDetailLabel_ = nullptr;
 	lv_obj_t *electricalTickLabels_[rv_control_ui::constants::kDialTickLabelCount] = {};
 	lv_obj_t *temperatureTickLabels_[rv_control_ui::constants::kDialTickLabelCount] = {};
 	DetailRendererFactory rendererFactory_;
 	DetailRenderer *activeRenderer_ = nullptr;
 
-	/** @brief Create the supplementary SSID and address label used only by Wi-Fi Info. */
-	void initializeWiFiInfoLabel();
-
-	/** @brief Create the dedicated RSSI label for Wi-Fi Info's center value. */
-	void initializeWiFiSignalLabel();
-
 	/** @brief Draw six range-aware labels over one static demonstration dial scale. */
 	void updateTelemetryTickLabels(lv_obj_t *screen, lv_obj_t *labels[], const CarouselItem &item, const char *unit,
 										 lv_color_t color);
 
-	/** @brief Forward the generated brightness-arc callback to the singleton controller. */
-	static void brightnessChangedCallback(lv_event_t *event);
+	/** @brief Open the carousel item selected when its central touch target is tapped. */
+	static void selectedItemClickedCallback(lv_event_t *event);
 	/** @brief Refresh the active telemetry detail screen from the copied snapshot. */
 	void refreshActiveDetail();
 	/** @brief Synchronize application overlays after a SquareLine screen transition. */

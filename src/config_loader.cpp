@@ -148,7 +148,8 @@ bool isValidTopicSuffix(const char *topic) {
 /** @brief Return whether a catalog icon name maps to a supported carousel visual. */
 bool isSupportedCarouselIcon(const char *icon) {
   return strcmp(icon, "battery") == 0 || strcmp(icon, "solar") == 0 ||
-         strcmp(icon, "load") == 0 || strcmp(icon, "temperature") == 0;
+         strcmp(icon, "load") == 0 || strcmp(icon, "temperature") == 0 ||
+         strcmp(icon, "brightness") == 0 || strcmp(icon, "wifi") == 0;
 }
 
 /** @brief Find a parsed catalog source by its stable identifier. */
@@ -198,14 +199,12 @@ bool parsePalette(JsonObjectConst source, const DisplayCatalog &catalog, Telemet
   return true;
 }
 
-/** @brief Parse one display definition bound to existing catalog source and palette IDs. */
+/** @brief Parse one telemetry or device-local display definition bound to a catalog palette. */
 bool parseItem(JsonObjectConst source, const DisplayCatalog &catalog, TelemetryDisplayDefinition &item) {
   memset(&item, 0, sizeof(item));
   if (!copyValue(item.title, sizeof(item.title), source["title"]) ||
       !copyValue(item.carouselTitle, sizeof(item.carouselTitle), source["carousel_title"]) ||
-      !copyValue(item.sourceId, sizeof(item.sourceId), source["source"]) ||
       !copyValue(item.paletteId, sizeof(item.paletteId), source["palette"]) ||
-      !copyValue(item.valueKey, sizeof(item.valueKey), source["value_key"]) ||
       !copyValue(item.unit, sizeof(item.unit), source["unit"]) ||
       !copyValue(item.icon, sizeof(item.icon), source["icon"]) ||
       !copyValue(item.screen, sizeof(item.screen), source["screen"])) return false;
@@ -215,7 +214,14 @@ bool parseItem(JsonObjectConst source, const DisplayCatalog &catalog, TelemetryD
   else if (strcmp(displayMode, "bar") == 0) item.displayMode = TelemetryDisplayMode::Bar;
   else if (strcmp(displayMode, "threshold") == 0) item.displayMode = TelemetryDisplayMode::Threshold;
   else if (strcmp(displayMode, "power_flow") == 0) item.displayMode = TelemetryDisplayMode::PowerFlow;
+  else if (strcmp(displayMode, "brightness") == 0) item.displayMode = TelemetryDisplayMode::Brightness;
+  else if (strcmp(displayMode, "wifi") == 0) item.displayMode = TelemetryDisplayMode::Wifi;
   else return false;
+	const bool deviceLocal = item.displayMode == TelemetryDisplayMode::Brightness || item.displayMode == TelemetryDisplayMode::Wifi;
+	if ((deviceLocal && (!copyOptionalValue(item.sourceId, sizeof(item.sourceId), source["source"]) ||
+										 !copyOptionalValue(item.valueKey, sizeof(item.valueKey), source["value_key"]))) ||
+			(!deviceLocal && (!copyValue(item.sourceId, sizeof(item.sourceId), source["source"]) ||
+									 !copyValue(item.valueKey, sizeof(item.valueKey), source["value_key"])))) return false;
 	if (!copyOptionalValue(item.flowSourceKey, sizeof(item.flowSourceKey), source["flow_source_key"]) ||
 			!copyOptionalValue(item.flowBatteryKey, sizeof(item.flowBatteryKey), source["flow_battery_key"]) ||
 			!copyOptionalValue(item.flowLoadKey, sizeof(item.flowLoadKey), source["flow_load_key"])) return false;
@@ -236,8 +242,8 @@ bool parseItem(JsonObjectConst source, const DisplayCatalog &catalog, TelemetryD
       isSupportedCarouselIcon(item.icon) &&
        (item.displayMode != TelemetryDisplayMode::PowerFlow ||
         (item.flowSourceKey[0] != '\0' && item.flowBatteryKey[0] != '\0' && item.flowLoadKey[0] != '\0')) &&
-         (item.fontSize == 40 || item.fontSize == 28 || item.fontSize == 20) &&
-         sourceIndex(catalog, item.sourceId) < catalog.sourceCount;
+         item.fontSize >= 20 && item.fontSize <= 40 &&
+         (deviceLocal || sourceIndex(catalog, item.sourceId) < catalog.sourceCount);
 }
 
 /** @brief Return whether a power-flow key is represented by a catalog telemetry item. */
@@ -254,8 +260,6 @@ void applyDefaults(AppConfig &config) {
   config.mqttPort = kDefaultMqttPort;
   config.expectedPollIntervalSeconds = kDefaultPollIntervalSeconds;
   config.sleepAfterSeconds = kDefaultSleepAfterSeconds;
-  config.showBrightness = true;
-  config.showWifi = true;
   strlcpy(config.temperatureUnit, kDefaultTemperatureUnit, sizeof(config.temperatureUnit));
   strlcpy(config.serialLevel, kDefaultSerialLevel, sizeof(config.serialLevel));
 }
@@ -304,9 +308,7 @@ bool ConfigStore::validateDocument(const ArduinoJson::JsonDocument &document, Ap
     if (!copyOptionalValue(config.temperatureUnit, sizeof(config.temperatureUnit), display["temperature_unit"]) ||
         !readUint16(display, "expected_poll_interval_seconds", 1, 65535, kDefaultPollIntervalSeconds,
                     config.expectedPollIntervalSeconds) ||
-        !readUint16(display, "sleep_after_seconds", 0, 65535, kDefaultSleepAfterSeconds, config.sleepAfterSeconds) ||
-        !readBool(display, "show_brightness", true, config.showBrightness) ||
-        !readBool(display, "show_wifi", true, config.showWifi)) {
+        !readUint16(display, "sleep_after_seconds", 0, 65535, kDefaultSleepAfterSeconds, config.sleepAfterSeconds)) {
       setError(error, errorSize, "config has an invalid display setting");
       return false;
     }
@@ -413,8 +415,6 @@ void ConfigStore::toJson(const AppConfig &config, const DisplayCatalog &catalog,
   display["temperature_unit"] = config.temperatureUnit;
   display["expected_poll_interval_seconds"] = config.expectedPollIntervalSeconds;
   display["sleep_after_seconds"] = config.sleepAfterSeconds;
-  display["show_brightness"] = config.showBrightness;
-  display["show_wifi"] = config.showWifi;
   JsonObject logging = document["logging"].to<JsonObject>();
   logging["serial_level"] = config.serialLevel;
 
@@ -446,9 +446,9 @@ void ConfigStore::toJson(const AppConfig &config, const DisplayCatalog &catalog,
     JsonObject item = items.add<JsonObject>();
     item["title"] = definition.title;
     item["carousel_title"] = definition.carouselTitle;
-    item["source"] = definition.sourceId;
+    if (definition.sourceId[0] != '\0') item["source"] = definition.sourceId;
     item["palette"] = definition.paletteId;
-    item["value_key"] = definition.valueKey;
+    if (definition.valueKey[0] != '\0') item["value_key"] = definition.valueKey;
     item["unit"] = definition.unit;
     item["icon"] = definition.icon;
     item["screen"] = definition.screen;
@@ -457,6 +457,8 @@ void ConfigStore::toJson(const AppConfig &config, const DisplayCatalog &catalog,
   else if (definition.displayMode == TelemetryDisplayMode::Bar) mode = "bar";
   else if (definition.displayMode == TelemetryDisplayMode::Threshold) mode = "threshold";
   else if (definition.displayMode == TelemetryDisplayMode::PowerFlow) mode = "power_flow";
+	else if (definition.displayMode == TelemetryDisplayMode::Brightness) mode = "brightness";
+	else if (definition.displayMode == TelemetryDisplayMode::Wifi) mode = "wifi";
   	item["display_mode"] = mode;
     item["arc_min"] = definition.arcMinimum;
     item["arc_max"] = definition.arcMaximum;

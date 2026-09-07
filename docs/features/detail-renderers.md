@@ -4,8 +4,9 @@
 
 Each `catalog.items[]` item selects a read-only detail presentation with the
 optional `display_mode` field. Supported values are `dial`, `chart`, `bar`,
-`threshold`, and `power_flow`. The default is `dial`, so existing catalogs
-remain compatible.
+`threshold`, `power_flow`, `brightness`, and `wifi`. The default is `dial`, so
+existing telemetry catalogs remain compatible. `brightness` and `wifi` are
+device-local modes and omit `source` and `value_key`.
 
 All renderers run only on Arduino's loop thread through `UiController`. MQTT,
 Wi-Fi, and encoder tasks never create or modify LVGL objects.
@@ -193,6 +194,12 @@ one is visible on the shared generated detail screen.
 
 ## TODO: Future Renderer Modes
 
+- Promote Brightness and Wi-Fi Info from `UiController` special cases to
+  standalone `DetailRenderer` objects that participate in the same factory,
+  lifecycle, and active-renderer handling as telemetry details. Normalize their
+  local configuration into catalog-style entries so their titles, icons,
+  screens, and presentation settings use the same contract as other detail
+  renderers while retaining their device-local data sources.
 - `StatusDetailRenderer`: Present discrete inverter, charger, transfer-switch,
   connectivity, or fault states as a large state label, matching icon/color,
   and last-update age. This requires a typed string or enum telemetry model;

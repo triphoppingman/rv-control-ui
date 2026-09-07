@@ -24,7 +24,6 @@ void UiController::configure() {
 }
 
 void UiController::initializeCarousel() {
-	const AppConfig &config = AppConfig::instance();
 	const DisplayCatalog &catalog = DisplayCatalog::instance();
 	carouselItemCount_ = 0;
 	selectedItemIndex_ = 0;
@@ -34,8 +33,10 @@ void UiController::initializeCarousel() {
 		if (strcmp(definition.icon, "solar") == 0) icon = CarouselIcon::Solar;
 		else if (strcmp(definition.icon, "load") == 0) icon = CarouselIcon::Load;
 		else if (strcmp(definition.icon, "temperature") == 0) icon = CarouselIcon::Temperature;
+		else if (strcmp(definition.icon, "brightness") == 0) icon = CarouselIcon::Brightness;
+		else if (strcmp(definition.icon, "wifi") == 0) icon = CarouselIcon::WiFi;
 		carouselItems_[carouselItemCount_++] = {definition.title, definition.carouselTitle, definition.unit, index, icon,
-			strcmp(definition.screen, "temperature") == 0, false, false, definition.arcMinimum, definition.arcMaximum,
+			strcmp(definition.screen, "temperature") == 0, definition.arcMinimum, definition.arcMaximum,
 			definition.tickLabelColor, definition.displayBackground, definition.backgroundImage, definition.precision,
 			definition.compact, definition.fontSize, definition.displayMode, definition.thresholdLow, definition.thresholdHigh,
 			{}, {}, {}};
@@ -44,29 +45,16 @@ void UiController::initializeCarousel() {
 		strlcpy(carouselItems_[carouselItemCount_ - 1].flowLoadKey, definition.flowLoadKey, sizeof(definition.flowLoadKey));
 	}
 	rendererFactory_.configure(catalog.itemCount);
-	if (config.showBrightness) {
-		carouselItems_[carouselItemCount_++] = {"Brightness", "Brightness", "%", kNoTelemetryIndex, CarouselIcon::Brightness,
-			false, true, false, 0, 100, 0xFFFFFF, 0x000000, DetailBackgroundImage::Default, 0, false, 40, TelemetryDisplayMode::Dial, 0, 100, {}, {}, {}};
-	}
-	if (config.showWifi) {
-		carouselItems_[carouselItemCount_++] = {"WiFi info", "WiFi\nInfo", "", kNoTelemetryIndex, CarouselIcon::WiFi,
-			false, false, true, 0, 100, 0xFFFFFF, 0x000000, DetailBackgroundImage::Default, 0, false, 20, TelemetryDisplayMode::Dial, 0, 100, {}, {}, {}};
-	}
-}
-
-void UiController::registerGeneratedCallbacks() {
-	lv_obj_add_event_cb(ui_lightArc, brightnessChangedCallback, LV_EVENT_VALUE_CHANGED, nullptr);
 }
 
 void UiController::initializeGeneratedUi() {
 	ui_init();
-	registerGeneratedCallbacks();
 	refreshCarousel();
-	lv_obj_send_event(ui_lightArc, LV_EVENT_VALUE_CHANGED, nullptr);
 }
 
-void UiController::brightnessChangedCallback(lv_event_t *event) {
-	UiController::instance().handleBrightnessChanged(event);
+void UiController::selectedItemClickedCallback(lv_event_t *event) {
+	(void)event;
+	UiController::instance().openSelectedScreen();
 }
 
 bool UiController::usesLvglSymbol(CarouselIcon icon) {
@@ -135,6 +123,11 @@ void UiController::showSelection(lv_obj_t *icon, lv_obj_t *label, lv_obj_t *symb
 
 void UiController::refreshCarousel() {
 	if (carouselItemCount_ == 0) return;
+	// SquareLine's original center-card event always opened its sample temperature
+	// screen. Replace it each time Screen1 is recreated with catalog-aware routing.
+	lv_obj_remove_event_cb(ui_tempBlue, ui_event_tempBlue);
+	lv_obj_remove_event_cb(ui_tempBlue, selectedItemClickedCallback);
+	lv_obj_add_event_cb(ui_tempBlue, selectedItemClickedCallback, LV_EVENT_CLICKED, nullptr);
 	initializeCarouselSymbols();
 	for (lv_obj_t *symbolLabel : carouselSymbolLabels_) lv_obj_add_flag(symbolLabel, LV_OBJ_FLAG_HIDDEN);
 	hideCarouselSlot(ui_volumeWhite, ui_volumeTextWhite, ui_volumeBlue, ui_volumeTextBlue);
@@ -150,12 +143,7 @@ void UiController::refreshCarousel() {
 void UiController::handleRotation(bool clockwise) {
 	if (carouselItemCount_ == 0) return;
 	recordUserActivity();
-	if (lv_screen_active() == ui_Screen4) {
-		const int brightness = constrain(lv_arc_get_value(ui_lightArc) + (clockwise ? 5 : -5), 0, 100);
-		lv_arc_set_value(ui_lightArc, brightness);
-		lv_obj_send_event(ui_lightArc, LV_EVENT_VALUE_CHANGED, nullptr);
-		return;
-	}
+	if (lv_screen_active() != ui_Screen1 && activeRenderer_ && activeRenderer_->handleRotation(clockwise)) return;
 	if (lv_screen_active() != ui_Screen1) return;
 	moveSelection(clockwise);
 	refreshCarousel();
@@ -164,7 +152,7 @@ void UiController::handleRotation(bool clockwise) {
 void UiController::openSelectedScreen() {
 	if (carouselItemCount_ == 0 || lv_screen_active() != ui_Screen1) return;
 	const CarouselItem &item = selectedItem();
-	if (item.controlsBrightness) _ui_screen_change(&ui_Screen4, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, &ui_Screen4_screen_init);
+	if (item.displayMode == TelemetryDisplayMode::Brightness) _ui_screen_change(&ui_Screen4, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, &ui_Screen4_screen_init);
 	else if (item.usesTemperatureScreen) _ui_screen_change(&ui_Screen3, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, &ui_Screen3_screen_init);
 	else _ui_screen_change(&ui_Screen2, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, &ui_Screen2_screen_init);
 	refreshActiveDetail();
@@ -172,6 +160,10 @@ void UiController::openSelectedScreen() {
 
 void UiController::returnToCarousel() {
 	if (lv_screen_active() == ui_Screen1) return;
+	if (activeRenderer_) {
+		activeRenderer_->hide();
+		activeRenderer_ = nullptr;
+	}
 	_ui_screen_change(&ui_Screen1, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, &ui_Screen1_screen_init);
 	refreshCarousel();
 }
@@ -205,13 +197,6 @@ void UiController::updateTelemetryArc(lv_obj_t *arc, const CarouselItem &item) c
 void UiController::refreshActiveDetail() {
 	if (carouselItemCount_ == 0) return;
 	const CarouselItem &item = selectedItem();
-	if (item.controlsBrightness) return;
-	if (item.showsWiFiInfo) {
-		if (activeRenderer_) activeRenderer_->hide();
-		activeRenderer_ = nullptr;
-		refreshWiFiInfo();
-		return;
-	}
 	DetailRenderer *renderer = &rendererFactory_.rendererFor(item);
 	// The generated detail screen is shared, so only one renderer may expose its
 	// retained LVGL objects at a time.
@@ -228,7 +213,7 @@ void UiController::synchronizeActiveScreen() {
 void UiController::update() {
 	InputAction action; while (ElecrowCrowPanelInput::instance().readAction(action)) { recordUserActivity(); if (action.type == InputActionType::RotateClockwise) handleRotation(true); else if (action.type == InputActionType::RotateCounterclockwise) handleRotation(false); else if (action.type == InputActionType::Click) openSelectedScreen(); else returnToCarousel(); }
 	TelemetrySnapshot snapshot; if (NetworkController::instance().copyLatestSnapshot(snapshot) && acceptTelemetrySnapshot(snapshot)) { Serial.printf("[INFO] Telemetry snapshot %lu received\n", static_cast<unsigned long>(snapshot.sequence)); if (lv_screen_active() == ui_Screen2 || lv_screen_active() == ui_Screen3) refreshActiveDetail(); }
-	if (carouselItemCount_ > 0 && lv_screen_active() == ui_Screen2 && selectedItem().showsWiFiInfo && shouldRefreshWiFiInfo()) refreshWiFiInfo();
+	if (activeRenderer_) activeRenderer_->update();
 	updateDisplaySleep(); lv_timer_handler(); synchronizeActiveScreen(); delay(5);
 }
 
@@ -259,83 +244,6 @@ bool UiController::acceptTelemetrySnapshot(const TelemetrySnapshot &snapshot) {
 bool UiController::hasTelemetrySnapshot() const { return hasTelemetrySnapshot_; }
 
 const TelemetrySnapshot &UiController::latestSnapshot() const { return latestSnapshot_; }
-
-bool UiController::shouldRefreshWiFiInfo() {
-	const uint32_t now = millis();
-	if (now - lastWiFiInfoRefreshMilliseconds_ < 1000U) return false;
-	lastWiFiInfoRefreshMilliseconds_ = now;
-	return true;
-}
-
-void UiController::initializeWiFiInfoLabel() {
-	if (wifiInfoDetailLabel_) return;
-	wifiInfoDetailLabel_ = lv_label_create(ui_Screen2);
-	lv_obj_set_width(wifiInfoDetailLabel_, 180);
-	lv_obj_set_align(wifiInfoDetailLabel_, LV_ALIGN_CENTER);
-	lv_obj_set_y(wifiInfoDetailLabel_, 52);
-	lv_obj_set_style_text_align(wifiInfoDetailLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-	lv_obj_set_style_text_color(wifiInfoDetailLabel_, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-	lv_obj_set_style_text_font(wifiInfoDetailLabel_, &lv_font_montserrat_10, LV_PART_MAIN | LV_STATE_DEFAULT);
-}
-
-void UiController::initializeWiFiSignalLabel() {
-	if (wifiSignalDetailLabel_) return;
-	wifiSignalDetailLabel_ = lv_label_create(ui_Screen2);
-	lv_obj_set_width(wifiSignalDetailLabel_, 150);
-	lv_obj_set_height(wifiSignalDetailLabel_, 56);
-	lv_obj_set_align(wifiSignalDetailLabel_, LV_ALIGN_CENTER);
-	lv_obj_set_x(wifiSignalDetailLabel_, 4);
-	lv_obj_set_y(wifiSignalDetailLabel_, 3);
-	lv_obj_set_style_text_align(wifiSignalDetailLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-	lv_obj_set_style_text_color(wifiSignalDetailLabel_, lv_color_hex(0x33DCFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-	lv_obj_set_style_text_font(wifiSignalDetailLabel_, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
-}
-
-void UiController::refreshWiFiInfo() {
-	const bool hotspot = (WiFi.getMode() & WIFI_MODE_AP) != 0 && WiFi.softAPgetStationNum() >= 0 &&
-							 WiFi.softAPIP() != IPAddress(0, 0, 0, 0);
-	const bool connected = !hotspot && WiFi.status() == WL_CONNECTED;
-	char signalText[16];
-	int signalPercent = 0;
-	if (hotspot) {
-		strlcpy(signalText, "Setup", sizeof(signalText));
-		signalPercent = 100;
-	} else if (connected) {
-		const int rssi = WiFi.RSSI();
-		signalPercent = constrain(((rssi + 100) * 100) / 60, 0, 100);
-		snprintf(signalText, sizeof(signalText), "%ddBm", rssi);
-	} else {
-		strlcpy(signalText, "Offline", sizeof(signalText));
-	}
-
-	lv_obj_set_style_bg_image_src(ui_Screen2, &ui_img_v2_bj_volume_100_png, LV_PART_MAIN | LV_STATE_DEFAULT);
-	for (lv_obj_t *label : electricalTickLabels_) {
-		if (label) lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
-	}
-	lv_label_set_text(ui_Label4, "WiFi Info");
-	lv_obj_add_flag(ui_VolNum, LV_OBJ_FLAG_HIDDEN);
-	initializeWiFiSignalLabel();
-	lv_label_set_text(wifiSignalDetailLabel_, signalText);
-	lv_arc_set_range(ui_VolumeArc, 0, 100);
-	lv_arc_set_value(ui_VolumeArc, signalPercent);
-	lv_obj_remove_flag(ui_VolumeArc, LV_OBJ_FLAG_CLICKABLE);
-	lv_image_set_src(ui_Image3, nullptr);
-	lv_obj_add_flag(ui_Image3, LV_OBJ_FLAG_HIDDEN);
-	initializeWiFiInfoLabel();
-	if (hotspot) {
-		lv_label_set_text_fmt(wifiInfoDetailLabel_, "Hotspot: %s\nIP: %s", WiFi.softAPSSID().c_str(),
-							  WiFi.softAPIP().toString().c_str());
-	} else if (connected) {
-		const String ipAddress = WiFi.localIP().toString();
-		lv_label_set_text_fmt(wifiInfoDetailLabel_, "SSID: %s\nIP: %s", WiFi.SSID().c_str(), ipAddress.c_str());
-	} else {
-		lv_label_set_text(wifiInfoDetailLabel_, "SSID: --\nIP: --");
-	}
-	lv_obj_set_y(ui_screen2ReturnBt, 85);
-	lv_obj_set_y(ui_Label3, 84);
-	lv_obj_remove_flag(ui_screen2ReturnBt, LV_OBJ_FLAG_HIDDEN);
-	lv_obj_remove_flag(ui_Label3, LV_OBJ_FLAG_HIDDEN);
-}
 
 void UiController::updateElectricalTickLabels() {
 	const CarouselItem &item = selectedItem();
@@ -397,3 +305,5 @@ void UiController::handleBrightnessChanged(lv_event_t *event) {
 	lv_label_set_text(ui_LightNum, label);
 	if (!displaySleeping_) display_->setBacklightPercent(brightnessPercent_);
 }
+
+uint8_t UiController::brightnessPercent() const { return brightnessPercent_; }

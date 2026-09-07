@@ -13,9 +13,7 @@
   "display": {
     "temperature_unit": "F",
     "expected_poll_interval_seconds": 60,
-    "sleep_after_seconds": 300,
-    "show_brightness": true,
-    "show_wifi": true
+    "sleep_after_seconds": 300
   },
   "logging": {
     "serial_level": "INFO"
@@ -160,6 +158,30 @@
         "arc_max": 150,
         "precision": 0,
         "font_size": 40
+      },
+      {
+        "title": "Brightness",
+        "carousel_title": "Brightness",
+        "palette": "default",
+        "unit": "%",
+        "icon": "brightness",
+        "screen": "brightness",
+        "display_mode": "brightness",
+        "arc_max": 100,
+        "precision": 0,
+        "font_size": 40
+      },
+      {
+        "title": "WiFi info",
+        "carousel_title": "WiFi\nInfo",
+        "palette": "default",
+        "unit": "",
+        "icon": "wifi",
+        "screen": "electrical",
+        "display_mode": "wifi",
+        "arc_max": 100,
+        "precision": 0,
+        "font_size": 20
       }
     ]
   }

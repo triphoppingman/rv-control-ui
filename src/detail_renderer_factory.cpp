@@ -10,6 +10,8 @@ void DetailRendererFactory::configure(size_t telemetryItemCount) {
 }
 
 DetailRenderer &DetailRendererFactory::rendererFor(const CarouselItem &item) {
+	if (item.displayMode == TelemetryDisplayMode::Brightness) return brightnessRenderer_;
+	if (item.displayMode == TelemetryDisplayMode::Wifi) return wifiRenderer_;
 	if (item.displayMode == TelemetryDisplayMode::Chart) return chartRenderers_[item.telemetryIndex];
 	if (item.displayMode == TelemetryDisplayMode::Bar) return barRenderers_[item.telemetryIndex];
 	if (item.displayMode == TelemetryDisplayMode::Threshold) return thresholdRenderers_[item.telemetryIndex];

@@ -13,8 +13,8 @@ void ChartDetailRenderer::ensureObjects() {
 	// Each renderer retains its own objects. UiController shows only the selected
 	// renderer, but switching away does not discard this item's chart state.
 	chart_ = lv_chart_create(ui_Screen2);
-	lv_obj_set_size(chart_, 184, 116);
-	lv_obj_align(chart_, LV_ALIGN_CENTER, 0, 14);
+	lv_obj_set_size(chart_, 184, 100);
+	lv_obj_align(chart_, LV_ALIGN_CENTER, 0, -5);
 	lv_chart_set_type(chart_, LV_CHART_TYPE_LINE);
 	lv_chart_set_div_line_count(chart_, 4, 3);
 	lv_obj_set_style_line_width(chart_, 2, LV_PART_ITEMS);
@@ -24,6 +24,7 @@ void ChartDetailRenderer::ensureObjects() {
 	currentLabel_ = lv_label_create(ui_Screen2);
 	lv_obj_align(currentLabel_, LV_ALIGN_TOP_MID, 0, 36);
 	lv_obj_set_style_text_font(currentLabel_, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+	lv_obj_set_style_text_color(currentLabel_, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
 	minimumLabel_ = lv_label_create(ui_Screen2);
 	midpointLabel_ = lv_label_create(ui_Screen2);
 	maximumLabel_ = lv_label_create(ui_Screen2);
@@ -35,13 +36,13 @@ void ChartDetailRenderer::ensureObjects() {
 		lv_obj_set_style_text_font(label, &lv_font_montserrat_10, LV_PART_MAIN | LV_STATE_DEFAULT);
 		lv_obj_set_style_text_color(label, lv_color_hex(0xD7E5EA), LV_PART_MAIN | LV_STATE_DEFAULT);
 	}
-	lv_obj_align(minimumLabel_, LV_ALIGN_LEFT_MID, 4, 63);
-	lv_obj_align(midpointLabel_, LV_ALIGN_LEFT_MID, 4, 14);
-	lv_obj_align(maximumLabel_, LV_ALIGN_LEFT_MID, 4, -35);
-	lv_obj_align(timeStartLabel_, LV_ALIGN_BOTTOM_LEFT, 28, -22);
-	lv_obj_align(timeMiddleLabel_, LV_ALIGN_BOTTOM_MID, 0, -22);
-	lv_obj_align(timeEndLabel_, LV_ALIGN_BOTTOM_RIGHT, -28, -22);
-	lv_obj_align(statusLabel_, LV_ALIGN_BOTTOM_MID, 0, -40);
+	lv_obj_align(minimumLabel_, LV_ALIGN_LEFT_MID, 4, 44);
+	lv_obj_align(midpointLabel_, LV_ALIGN_LEFT_MID, 4, -5);
+	lv_obj_align(maximumLabel_, LV_ALIGN_LEFT_MID, 4, -54);
+	lv_obj_align(timeStartLabel_, LV_ALIGN_BOTTOM_LEFT, 28, -62);
+	lv_obj_align(timeMiddleLabel_, LV_ALIGN_BOTTOM_MID, 0, -62);
+	lv_obj_align(timeEndLabel_, LV_ALIGN_BOTTOM_RIGHT, -28, -62);
+	lv_obj_align(statusLabel_, LV_ALIGN_BOTTOM_MID, 0, -78);
 }
 
 void ChartDetailRenderer::render(const CarouselItem &item, const TelemetrySnapshot &snapshot, bool hasSnapshot) {
