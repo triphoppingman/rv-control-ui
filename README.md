@@ -24,7 +24,7 @@ The project targets the Elecrow CrowPanel Advance HMI ESP32-S3 rotary display:
 - Rotary encoder with push button.
 - USB-C connection for power, serial logging, and firmware upload.
 
-The board wiring is defined in [src/main.cpp](src/main.cpp). The display uses SPI2; touch uses `Wire1` on GPIO 6/7. The encoder uses GPIO 45, GPIO 42, and GPIO 41, while the display backlight is controlled on GPIO 46.
+Board-specific display wiring is implemented in [src/elecrow_crowpanel_display.cpp](src/elecrow_crowpanel_display.cpp), while the CST816D touch and encoder wiring is implemented in [src/elecrow_crowpanel_input.cpp](src/elecrow_crowpanel_input.cpp). The display uses SPI2; touch uses `Wire1` on GPIO 6/7. The encoder uses GPIO 45, GPIO 42, and GPIO 41, while the display backlight is controlled on GPIO 46.
 
 Use a USB-C data cable. A charge-only cable will power the display but cannot upload firmware or expose the serial monitor.
 
@@ -241,11 +241,11 @@ The current SquareLine export provides the round-screen backgrounds, carousel se
 
 The contents of `Arduino/`, including the RotaryScreen reference sketch, bundled display libraries, and SquareLine project assets, originated from Elecrow's [CrowPanel 1.28-inch HMI ESP32 Rotary Display repository](https://github.com/Elecrow-RD/CrowPanel-1.28inch-HMI-ESP32-Rotary-Display-240-240-IPS-Round-Touch-Knob-Screen). Refer to Elecrow's [device wiki](https://www.elecrow.com/wiki/CrowPanel_1.28inch-HMI_ESP32_Rotary_Display.html) for hardware documentation and vendor guidance. These materials are retained here as the hardware and UI foundation for this firmware.
 
-Source-owned application code lives in `src/`. [Arduino/RotaryScreen_1_28/RotaryScreen_1_28.ino](Arduino/RotaryScreen_1_28/RotaryScreen_1_28.ino) remains the proven hardware and interaction reference, but PlatformIO builds [src/main.cpp](src/main.cpp), not the `.ino` sketch.
+Source-owned application code lives in `src/`. [Arduino/RotaryScreen_1_28/RotaryScreen_1_28.ino](Arduino/RotaryScreen_1_28/RotaryScreen_1_28.ino) remains the proven hardware and interaction reference, but PlatformIO builds [src/main.cpp](src/main.cpp), not the `.ino` sketch. `main.cpp` intentionally contains only Arduino's `setup()` and `loop()` entry points; both delegate to `Application::instance()`.
 
 SquareLine project source is under `Arduino/ui_project/`; its generated export used for builds is under `Arduino/libraries/UI/`. Edit the SquareLine project, export LVGL 9 code, then deliberately synchronize the generated output. Avoid untracked manual edits to generated files.
 
-`NetworkController` runs all networking — Wi-Fi station/hotspot, MQTT, the configuration REST API, and the NeoPixel status LED — in a dedicated FreeRTOS task. It never calls LVGL. The Arduino `loop()` owns LVGL updates and copies the latest parsed snapshot from the networking task. Keep that separation when adding values, status indicators, or reconnect logic.
+`NetworkController` runs all networking — Wi-Fi station/hotspot, MQTT, the configuration REST API, and the NeoPixel status LED — in a dedicated FreeRTOS task. It never calls LVGL. `UiController`, called only from the Arduino loop thread, owns LVGL updates and copies the latest parsed snapshot from the networking task. Keep that separation when adding values, status indicators, or reconnect logic.
 
 Run this before sending a change for review:
 
@@ -273,14 +273,38 @@ For the shipped catalog, the collector publishes `rv/renogy` and `rv/hughes`, wh
 
 ### Firmware Construction
 
-PlatformIO compiles [`src/main.cpp`](src/main.cpp) as the application entry point. The hardware setup follows Elecrow's known-good RotaryScreen demonstration, while application code adds configuration loading, MQTT telemetry, catalog-driven presentation, and display sleep behavior.
+PlatformIO compiles [`src/main.cpp`](src/main.cpp) as the application entry point. It contains only Arduino's required `setup()` and `loop()` functions, which delegate to the process-lifetime `Application` singleton. The hardware setup follows Elecrow's known-good RotaryScreen demonstration, while application code adds configuration loading, MQTT telemetry, catalog-driven presentation, and display sleep behavior.
 
-At startup, `setup()` performs these operations in order:
+At startup, `Application::begin()` performs these operations in order:
 
 1. Starts USB CDC serial logging at 115200 baud.
 2. Mounts SPIFFS and validates the unified `/config.json` (settings and catalog together).
 3. Initializes the board power pins, GC9A01 display, DMA, LVGL, CST816D touch controller, backlight PWM, and encoder input queue.
 4. Starts the network task, which brings up Wi-Fi (or the setup hotspot), the configuration API, the status LED, and MQTT.
+
+### Firmware Classes
+
+The firmware uses singleton access for process-lifetime board services. This
+avoids application globals in `main.cpp` and makes each hardware, task, and UI
+ownership boundary explicit. `AppConfig` and `DisplayCatalog` have one live
+instance loaded at boot; short-lived local instances are still used when the
+configuration API validates a proposed replacement document.
+
+| Class | Implementation | Responsibility |
+| --- | --- | --- |
+| `Application` | [`src/application.cpp`](src/application.cpp) | Coordinates boot order and the Arduino-loop update pass. |
+| `ElecrowCrowPanelDisplay` | [`src/elecrow_crowpanel_display.cpp`](src/elecrow_crowpanel_display.cpp) | Owns GC9A01/LovyanGFX setup, SPI2 DMA, PSRAM buffers, LVGL display registration, and backlight PWM. |
+| `ElecrowCrowPanelInput` | [`src/elecrow_crowpanel_input.cpp`](src/elecrow_crowpanel_input.cpp) | Owns CST816D touch input, encoder GPIO/ISR, the encoder FreeRTOS task, and its bounded action queue. |
+| `UiController` | [`src/ui_controller.cpp`](src/ui_controller.cpp) | Owns SquareLine/LVGL presentation, carousel state, detail screens, copied telemetry, brightness, and display sleep. |
+| `NetworkController` | [`src/network_controller.cpp`](src/network_controller.cpp) | Owns the network task, Wi-Fi/hotspot state, MQTT client/subscriptions, and the shared telemetry snapshot. |
+| `ConfigStore` | [`src/config_loader.cpp`](src/config_loader.cpp) | Loads, validates, and serializes the SPIFFS configuration and catalog. |
+| `ConfigApi` | [`src/config_api.cpp`](src/config_api.cpp) | Owns the configuration HTTP server, request validation, atomic writes, and restart scheduling. |
+| `StatusLed` | [`src/status_led.cpp`](src/status_led.cpp) | Owns the board's NeoPixel network-status indicator. |
+
+`NetworkController` retains only task-owned mutable state: normalized MQTT
+subscriptions, Wi-Fi/MQTT connection state, and the latest telemetry snapshot.
+It reads the live configuration and catalog through their singleton accessors;
+it does not keep duplicate copies or embed the API and LED services.
 
 The carousel appends enabled local Brightness and WiFi Info entries after catalog entries. Both controls default to enabled and can be hidden independently with `show_brightness` or `show_wifi` in `data/config.json`. If the configuration or its catalog is invalid, enabled local entries still make the display usable for basic diagnostics and the configuration API and hotspot remain available for repair, but MQTT-backed entries are unavailable.
 
@@ -288,11 +312,11 @@ The runtime deliberately has three ownership domains:
 
 | Domain | Owner | Responsibilities | Must not do |
 | --- | --- | --- | --- |
-| UI and display | Arduino `loop()` | LVGL timers, screen changes, labels, arcs, backlight sleep, and applying telemetry copies | Block on Wi-Fi/MQTT or accept cross-task LVGL calls |
-| Rotary input | `encoderTask` FreeRTOS task and the button ISR | Quadrature sampling, debounce, single/double-click classification, and posting `EncoderAction` values to a queue | Touch LVGL objects directly |
+| UI and display | `UiController`, called by `Application::update()` on Arduino's loop thread | LVGL timers, screen changes, labels, arcs, backlight sleep, and applying telemetry copies | Block on Wi-Fi/MQTT or accept cross-task LVGL calls |
+| Rotary input | `ElecrowCrowPanelInput` encoder FreeRTOS task and button ISR | Quadrature sampling, debounce, single/double-click classification, and posting `InputAction` values to a queue | Touch LVGL objects directly |
 | Network | `NetworkController` FreeRTOS task | Wi-Fi station/hotspot, MQTT reconnects, subscriptions, the configuration REST API, the status LED, and bounded JSON parsing | Touch LVGL or send equipment commands |
 
-`loop()` is the sole owner of LVGL objects. The MQTT task copies its newest catalog-indexed `TelemetrySnapshot` through a short critical section; the loop takes a copy and refreshes an active detail view. Preserve this boundary when adding status indicators, new telemetry, or reconnect behavior. Calling LVGL from an MQTT callback or FreeRTOS task will introduce display races and instability.
+`UiController::update()`, invoked only from Arduino's `loop()` through `Application::update()`, is the sole owner of LVGL objects. The MQTT task copies its newest catalog-indexed `TelemetrySnapshot` through a short critical section; the UI loop takes a copy and refreshes an active detail view. Preserve this boundary when adding status indicators, new telemetry, or reconnect behavior. Calling LVGL from an MQTT callback or FreeRTOS task will introduce display races and instability.
 
 The display uses two full 240 x 240 RGB565 render buffers in OPI PSRAM and transfers them over SPI2 using LovyanGFX DMA. The selected PlatformIO board settings match the CrowPanel N16R8 configuration: 16 MB flash and 8 MB OPI PSRAM. Do not casually change the memory type, PSRAM flags, display pin assignments, SPI host, DMA configuration, or partition table; they are hardware-specific parts of the working display path.
 
