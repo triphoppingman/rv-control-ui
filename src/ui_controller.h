@@ -24,6 +24,7 @@ struct CarouselItem {
 	int arcMaximum;
 	uint32_t tickLabelColor;
 	uint32_t displayBackground;
+	DetailBackgroundImage backgroundImage;
 	uint8_t precision;
 	bool compact;
 	uint8_t fontSize;

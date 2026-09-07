@@ -27,9 +27,9 @@
     ],
     "palettes": [
       {"id": "default", "tick_label_color": "#FFFFFF", "display_background": "#000000"},
-      {"id": "battery", "tick_label_color": "#F5F7FA", "display_background": "#253B4A"},
+      {"id": "battery", "tick_label_color": "#F5F7FA", "display_background": "#253B4A", "background_image": "electrical"},
       {"id": "solar", "tick_label_color": "#F5F7FA", "display_background": "#314633"},
-      {"id": "temperature", "tick_label_color": "#F5F7FA", "display_background": "#493038"}
+      {"id": "temperature", "tick_label_color": "#F5F7FA", "display_background": "#493038", "background_image": "temperature"}
     ],
     "items": [
       {

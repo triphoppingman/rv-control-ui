@@ -22,6 +22,26 @@ Every display mode uses the normal catalog fields:
 The item receives `display_background` and `tick_label_color` from its named
 palette. `display_background` is applied to the generated detail screen.
 
+Palettes may also set an optional `background_image` to select a compiled
+SquareLine detail-screen asset:
+
+```json
+{
+  "id": "temperature",
+  "tick_label_color": "#F5F7FA",
+  "display_background": "#493038",
+  "background_image": "temperature"
+}
+```
+
+Valid values are `default`, `electrical`, `temperature`, `light`, and `none`.
+The field defaults to `default` when it is absent, preserving compatibility
+with existing `config.json` files. For dial rendering, `default` selects the
+existing electrical artwork on electrical screens and the existing temperature
+artwork on temperature screens. `none` deliberately removes the image and
+uses only `display_background`. The selector accepts only compiled SquareLine
+assets; it never loads image paths from SPIFFS.
+
 ```json
 {
   "title": "Battery voltage",

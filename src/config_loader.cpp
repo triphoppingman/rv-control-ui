@@ -145,6 +145,12 @@ bool isValidTopicSuffix(const char *topic) {
   return true;
 }
 
+/** @brief Return whether a catalog icon name maps to a supported carousel visual. */
+bool isSupportedCarouselIcon(const char *icon) {
+  return strcmp(icon, "battery") == 0 || strcmp(icon, "solar") == 0 ||
+         strcmp(icon, "load") == 0 || strcmp(icon, "temperature") == 0;
+}
+
 /** @brief Find a parsed catalog source by its stable identifier. */
 size_t sourceIndex(const DisplayCatalog &catalog, const char *id) {
   for (size_t index = 0; index < catalog.sourceCount; ++index) {
@@ -179,6 +185,13 @@ bool parsePalette(JsonObjectConst source, const DisplayCatalog &catalog, Telemet
   if (!copyValue(definition.id, sizeof(definition.id), source["id"]) || !isValidIdentifier(definition.id) ||
       !parseColor(source["tick_label_color"], 0xFFFFFF, definition.tickLabelColor) ||
       !parseColor(source["display_background"], 0x000000, definition.displayBackground)) return false;
+  const char *backgroundImage = source["background_image"] | "default";
+  if (strcmp(backgroundImage, "default") == 0) definition.backgroundImage = DetailBackgroundImage::Default;
+  else if (strcmp(backgroundImage, "electrical") == 0) definition.backgroundImage = DetailBackgroundImage::Electrical;
+  else if (strcmp(backgroundImage, "temperature") == 0) definition.backgroundImage = DetailBackgroundImage::Temperature;
+  else if (strcmp(backgroundImage, "light") == 0) definition.backgroundImage = DetailBackgroundImage::Light;
+  else if (strcmp(backgroundImage, "none") == 0) definition.backgroundImage = DetailBackgroundImage::None;
+  else return false;
   for (size_t index = 0; index < catalog.paletteCount; ++index) {
     if (strcmp(catalog.palettes[index].id, definition.id) == 0) return false;
   }
@@ -210,6 +223,7 @@ bool parseItem(JsonObjectConst source, const DisplayCatalog &catalog, TelemetryD
   if (resolvedPaletteIndex == kMaximumTelemetryPalettes) return false;
   item.tickLabelColor = catalog.palettes[resolvedPaletteIndex].tickLabelColor;
   item.displayBackground = catalog.palettes[resolvedPaletteIndex].displayBackground;
+	item.backgroundImage = catalog.palettes[resolvedPaletteIndex].backgroundImage;
   item.arcMinimum = source["arc_min"] | 0;
   item.arcMaximum = source["arc_max"] | 100;
   item.precision = source["precision"] | 1;
@@ -219,6 +233,7 @@ bool parseItem(JsonObjectConst source, const DisplayCatalog &catalog, TelemetryD
   item.thresholdHigh = source["threshold_high"] | item.arcMaximum;
   return item.arcMinimum >= -5000 && item.arcMinimum < item.arcMaximum && item.arcMaximum <= 5000 && item.precision <= 3 &&
        item.thresholdLow >= item.arcMinimum && item.thresholdLow <= item.thresholdHigh && item.thresholdHigh <= item.arcMaximum &&
+      isSupportedCarouselIcon(item.icon) &&
        (item.displayMode != TelemetryDisplayMode::PowerFlow ||
         (item.flowSourceKey[0] != '\0' && item.flowBatteryKey[0] != '\0' && item.flowLoadKey[0] != '\0')) &&
          (item.fontSize == 40 || item.fontSize == 28 || item.fontSize == 20) &&
@@ -419,6 +434,11 @@ void ConfigStore::toJson(const AppConfig &config, const DisplayCatalog &catalog,
     palette["tick_label_color"] = color;
     snprintf(color, sizeof(color), "#%06lX", static_cast<unsigned long>(catalog.palettes[index].displayBackground));
     palette["display_background"] = color;
+  const DetailBackgroundImage backgroundImage = catalog.palettes[index].backgroundImage;
+  palette["background_image"] = backgroundImage == DetailBackgroundImage::Electrical ? "electrical"
+                       : backgroundImage == DetailBackgroundImage::Temperature ? "temperature"
+                       : backgroundImage == DetailBackgroundImage::Light ? "light"
+                       : backgroundImage == DetailBackgroundImage::None ? "none" : "default";
   }
   JsonArray items = catalogSection["items"].to<JsonArray>();
   for (size_t index = 0; index < catalog.itemCount; ++index) {

@@ -36,8 +36,9 @@ void UiController::initializeCarousel() {
 		else if (strcmp(definition.icon, "temperature") == 0) icon = CarouselIcon::Temperature;
 		carouselItems_[carouselItemCount_++] = {definition.title, definition.carouselTitle, definition.unit, index, icon,
 			strcmp(definition.screen, "temperature") == 0, false, false, definition.arcMinimum, definition.arcMaximum,
-			definition.tickLabelColor, definition.displayBackground, definition.precision, definition.compact, definition.fontSize,
-			definition.displayMode, definition.thresholdLow, definition.thresholdHigh, {}, {}, {}};
+			definition.tickLabelColor, definition.displayBackground, definition.backgroundImage, definition.precision,
+			definition.compact, definition.fontSize, definition.displayMode, definition.thresholdLow, definition.thresholdHigh,
+			{}, {}, {}};
 		strlcpy(carouselItems_[carouselItemCount_ - 1].flowSourceKey, definition.flowSourceKey, sizeof(definition.flowSourceKey));
 		strlcpy(carouselItems_[carouselItemCount_ - 1].flowBatteryKey, definition.flowBatteryKey, sizeof(definition.flowBatteryKey));
 		strlcpy(carouselItems_[carouselItemCount_ - 1].flowLoadKey, definition.flowLoadKey, sizeof(definition.flowLoadKey));
@@ -45,11 +46,11 @@ void UiController::initializeCarousel() {
 	rendererFactory_.configure(catalog.itemCount);
 	if (config.showBrightness) {
 		carouselItems_[carouselItemCount_++] = {"Brightness", "Brightness", "%", kNoTelemetryIndex, CarouselIcon::Brightness,
-			false, true, false, 0, 100, 0xFFFFFF, 0x000000, 0, false, 40, TelemetryDisplayMode::Dial, 0, 100, {}, {}, {}};
+			false, true, false, 0, 100, 0xFFFFFF, 0x000000, DetailBackgroundImage::Default, 0, false, 40, TelemetryDisplayMode::Dial, 0, 100, {}, {}, {}};
 	}
 	if (config.showWifi) {
 		carouselItems_[carouselItemCount_++] = {"WiFi info", "WiFi\nInfo", "", kNoTelemetryIndex, CarouselIcon::WiFi,
-			false, false, true, 0, 100, 0xFFFFFF, 0x000000, 0, false, 20, TelemetryDisplayMode::Dial, 0, 100, {}, {}, {}};
+			false, false, true, 0, 100, 0xFFFFFF, 0x000000, DetailBackgroundImage::Default, 0, false, 20, TelemetryDisplayMode::Dial, 0, 100, {}, {}, {}};
 	}
 }
 

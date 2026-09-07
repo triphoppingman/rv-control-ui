@@ -39,11 +39,15 @@ struct TelemetrySourceDefinition {
   char topic[64];
 };
 
-/** @brief One named set of telemetry detail tick-label and background colors. */
+/** @brief Compiled SquareLine background choices allowed by the configuration catalog. */
+enum class DetailBackgroundImage : uint8_t { Default, Electrical, Temperature, Light, None };
+
+/** @brief One named set of telemetry detail tick-label, color, and image settings. */
 struct TelemetryPaletteDefinition {
   char id[32];
   uint32_t tickLabelColor;
   uint32_t displayBackground;
+  DetailBackgroundImage backgroundImage;
 };
 
 /** @brief Supported presentation modes for a telemetry detail screen. */
@@ -74,6 +78,7 @@ struct TelemetryDisplayDefinition {
   int arcMaximum;
   uint32_t tickLabelColor;
   uint32_t displayBackground;
+  DetailBackgroundImage backgroundImage;
   uint8_t precision;
   bool compact;
   uint8_t fontSize;
