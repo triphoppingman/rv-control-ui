@@ -196,6 +196,16 @@ bool parseItem(JsonObjectConst source, const DisplayCatalog &catalog, TelemetryD
       !copyValue(item.unit, sizeof(item.unit), source["unit"]) ||
       !copyValue(item.icon, sizeof(item.icon), source["icon"]) ||
       !copyValue(item.screen, sizeof(item.screen), source["screen"])) return false;
+  const char *displayMode = source["display_mode"] | "dial";
+  if (strcmp(displayMode, "dial") == 0) item.displayMode = TelemetryDisplayMode::Dial;
+  else if (strcmp(displayMode, "chart") == 0) item.displayMode = TelemetryDisplayMode::Chart;
+  else if (strcmp(displayMode, "bar") == 0) item.displayMode = TelemetryDisplayMode::Bar;
+  else if (strcmp(displayMode, "threshold") == 0) item.displayMode = TelemetryDisplayMode::Threshold;
+  else if (strcmp(displayMode, "power_flow") == 0) item.displayMode = TelemetryDisplayMode::PowerFlow;
+  else return false;
+	if (!copyOptionalValue(item.flowSourceKey, sizeof(item.flowSourceKey), source["flow_source_key"]) ||
+			!copyOptionalValue(item.flowBatteryKey, sizeof(item.flowBatteryKey), source["flow_battery_key"]) ||
+			!copyOptionalValue(item.flowLoadKey, sizeof(item.flowLoadKey), source["flow_load_key"])) return false;
   const size_t resolvedPaletteIndex = paletteIndex(catalog, item.paletteId);
   if (resolvedPaletteIndex == kMaximumTelemetryPalettes) return false;
   item.tickLabelColor = catalog.palettes[resolvedPaletteIndex].tickLabelColor;
@@ -205,9 +215,22 @@ bool parseItem(JsonObjectConst source, const DisplayCatalog &catalog, TelemetryD
   item.precision = source["precision"] | 1;
   item.compact = source["compact"] | false;
   item.fontSize = source["font_size"] | 40;
+  item.thresholdLow = source["threshold_low"] | item.arcMinimum;
+  item.thresholdHigh = source["threshold_high"] | item.arcMaximum;
   return item.arcMinimum >= -5000 && item.arcMinimum < item.arcMaximum && item.arcMaximum <= 5000 && item.precision <= 3 &&
+       item.thresholdLow >= item.arcMinimum && item.thresholdLow <= item.thresholdHigh && item.thresholdHigh <= item.arcMaximum &&
+       (item.displayMode != TelemetryDisplayMode::PowerFlow ||
+        (item.flowSourceKey[0] != '\0' && item.flowBatteryKey[0] != '\0' && item.flowLoadKey[0] != '\0')) &&
          (item.fontSize == 40 || item.fontSize == 28 || item.fontSize == 20) &&
          sourceIndex(catalog, item.sourceId) < catalog.sourceCount;
+}
+
+/** @brief Return whether a power-flow key is represented by a catalog telemetry item. */
+bool hasValueKey(const DisplayCatalog &catalog, const char *key) {
+  for (size_t index = 0; index < catalog.itemCount; ++index) {
+    if (strcmp(catalog.items[index].valueKey, key) == 0) return true;
+  }
+  return false;
 }
 
 /** @brief Apply schema defaults before any JSON values are read. */
@@ -321,6 +344,15 @@ bool ConfigStore::validateDocument(const ArduinoJson::JsonDocument &document, Ap
     setError(error, errorSize, "config catalog has no items");
     return false;
   }
+  for (size_t index = 0; index < catalog.itemCount; ++index) {
+    const TelemetryDisplayDefinition &item = catalog.items[index];
+    if (item.displayMode == TelemetryDisplayMode::PowerFlow &&
+        (!hasValueKey(catalog, item.flowSourceKey) || !hasValueKey(catalog, item.flowBatteryKey) ||
+           !hasValueKey(catalog, item.flowLoadKey))) {
+      setError(error, errorSize, "config power-flow keys must reference catalog values");
+      return false;
+    }
+  }
   return true;
 }
 
@@ -400,10 +432,23 @@ void ConfigStore::toJson(const AppConfig &config, const DisplayCatalog &catalog,
     item["unit"] = definition.unit;
     item["icon"] = definition.icon;
     item["screen"] = definition.screen;
+  const char *mode = "dial";
+  if (definition.displayMode == TelemetryDisplayMode::Chart) mode = "chart";
+  else if (definition.displayMode == TelemetryDisplayMode::Bar) mode = "bar";
+  else if (definition.displayMode == TelemetryDisplayMode::Threshold) mode = "threshold";
+  else if (definition.displayMode == TelemetryDisplayMode::PowerFlow) mode = "power_flow";
+  	item["display_mode"] = mode;
     item["arc_min"] = definition.arcMinimum;
     item["arc_max"] = definition.arcMaximum;
     item["precision"] = definition.precision;
     item["compact"] = definition.compact;
     item["font_size"] = definition.fontSize;
+  item["threshold_low"] = definition.thresholdLow;
+  item["threshold_high"] = definition.thresholdHigh;
+  if (definition.displayMode == TelemetryDisplayMode::PowerFlow) {
+    item["flow_source_key"] = definition.flowSourceKey;
+    item["flow_battery_key"] = definition.flowBatteryKey;
+    item["flow_load_key"] = definition.flowLoadKey;
+  }
   }
 }

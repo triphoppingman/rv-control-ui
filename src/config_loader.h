@@ -46,6 +46,9 @@ struct TelemetryPaletteDefinition {
   uint32_t displayBackground;
 };
 
+/** @brief Supported presentation modes for a telemetry detail screen. */
+enum class TelemetryDisplayMode : uint8_t { Dial, Chart, Bar, Threshold, PowerFlow };
+
 /**
  * @brief One read-only MQTT display definition from the configuration catalog.
  *
@@ -61,6 +64,12 @@ struct TelemetryDisplayDefinition {
   char unit[8];
   char icon[16];
   char screen[16];
+	TelemetryDisplayMode displayMode;
+  int thresholdLow;
+  int thresholdHigh;
+  char flowSourceKey[40];
+  char flowBatteryKey[40];
+  char flowLoadKey[40];
   int arcMinimum;
   int arcMaximum;
   uint32_t tickLabelColor;

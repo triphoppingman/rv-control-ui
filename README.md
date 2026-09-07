@@ -255,6 +255,10 @@ Run this before sending a change for review:
 
 See [UI_STEERING.md](UI_STEERING.md) for the intended Renogy data model, carousel order, MQTT contract, configuration rules, and definition of done.
 
+See [docs/features/detail-renderers.md](docs/features/detail-renderers.md) for
+the dial, chart, bar, threshold, and power-flow detail modes, their catalog
+configuration, and their RAM-only chart-history behavior.
+
 ## Architecture and Operations
 
 ### System Topology

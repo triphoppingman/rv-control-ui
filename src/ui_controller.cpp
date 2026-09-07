@@ -6,6 +6,7 @@
 
 #include "constants.h"
 #include "elecrow_crowpanel_input.h"
+#include "telemetry_history.h"
 #include "ui.h"
 
 using namespace rv_control_ui::constants;
@@ -35,15 +36,20 @@ void UiController::initializeCarousel() {
 		else if (strcmp(definition.icon, "temperature") == 0) icon = CarouselIcon::Temperature;
 		carouselItems_[carouselItemCount_++] = {definition.title, definition.carouselTitle, definition.unit, index, icon,
 			strcmp(definition.screen, "temperature") == 0, false, false, definition.arcMinimum, definition.arcMaximum,
-			definition.tickLabelColor, definition.displayBackground, definition.precision, definition.compact, definition.fontSize};
+			definition.tickLabelColor, definition.displayBackground, definition.precision, definition.compact, definition.fontSize,
+			definition.displayMode, definition.thresholdLow, definition.thresholdHigh, {}, {}, {}};
+		strlcpy(carouselItems_[carouselItemCount_ - 1].flowSourceKey, definition.flowSourceKey, sizeof(definition.flowSourceKey));
+		strlcpy(carouselItems_[carouselItemCount_ - 1].flowBatteryKey, definition.flowBatteryKey, sizeof(definition.flowBatteryKey));
+		strlcpy(carouselItems_[carouselItemCount_ - 1].flowLoadKey, definition.flowLoadKey, sizeof(definition.flowLoadKey));
 	}
+	rendererFactory_.configure(catalog.itemCount);
 	if (config.showBrightness) {
 		carouselItems_[carouselItemCount_++] = {"Brightness", "Brightness", "%", kNoTelemetryIndex, CarouselIcon::Brightness,
-			false, true, false, 0, 100, 0xFFFFFF, 0x000000, 0, false, 40};
+			false, true, false, 0, 100, 0xFFFFFF, 0x000000, 0, false, 40, TelemetryDisplayMode::Dial, 0, 100, {}, {}, {}};
 	}
 	if (config.showWifi) {
 		carouselItems_[carouselItemCount_++] = {"WiFi info", "WiFi\nInfo", "", kNoTelemetryIndex, CarouselIcon::WiFi,
-			false, false, true, 0, 100, 0xFFFFFF, 0x000000, 0, false, 20};
+			false, false, true, 0, 100, 0xFFFFFF, 0x000000, 0, false, 20, TelemetryDisplayMode::Dial, 0, 100, {}, {}, {}};
 	}
 }
 
@@ -196,10 +202,21 @@ void UiController::updateTelemetryArc(lv_obj_t *arc, const CarouselItem &item) c
 }
 
 void UiController::refreshActiveDetail() {
-	if (carouselItemCount_ == 0) return; const CarouselItem &item = selectedItem(); if (item.controlsBrightness) return; if (item.showsWiFiInfo) { refreshWiFiInfo(); return; }
-	char text[16]; formatTelemetryValue(item, text, sizeof(text));
-	if (item.usesTemperatureScreen) { lv_obj_set_style_bg_image_src(ui_Screen3, nullptr, LV_PART_MAIN | LV_STATE_DEFAULT); lv_obj_set_style_bg_color(ui_Screen3, lv_color_hex(item.displayBackground), LV_PART_MAIN | LV_STATE_DEFAULT); lv_label_set_text(ui_Label8, item.title); setDialValue(ui_TempNum, text, item.fontSize); updateTelemetryArc(ui_TempArc, item); updateTemperatureTickLabels(); lv_obj_remove_flag(ui_TempArc, LV_OBJ_FLAG_CLICKABLE); }
-	else { lv_obj_set_style_bg_image_src(ui_Screen2, nullptr, LV_PART_MAIN | LV_STATE_DEFAULT); lv_obj_set_style_bg_color(ui_Screen2, lv_color_hex(item.displayBackground), LV_PART_MAIN | LV_STATE_DEFAULT); lv_obj_remove_flag(ui_VolNum, LV_OBJ_FLAG_HIDDEN); lv_label_set_text(ui_Label4, item.title); setDialValue(ui_VolNum, text, item.fontSize); updateTelemetryArc(ui_VolumeArc, item); updateElectricalTickLabels(); lv_obj_remove_flag(ui_VolumeArc, LV_OBJ_FLAG_CLICKABLE); lv_obj_add_flag(ui_Image3, LV_OBJ_FLAG_HIDDEN); }
+	if (carouselItemCount_ == 0) return;
+	const CarouselItem &item = selectedItem();
+	if (item.controlsBrightness) return;
+	if (item.showsWiFiInfo) {
+		if (activeRenderer_) activeRenderer_->hide();
+		activeRenderer_ = nullptr;
+		refreshWiFiInfo();
+		return;
+	}
+	DetailRenderer *renderer = &rendererFactory_.rendererFor(item);
+	// The generated detail screen is shared, so only one renderer may expose its
+	// retained LVGL objects at a time.
+	if (activeRenderer_ && activeRenderer_ != renderer) activeRenderer_->hide();
+	activeRenderer_ = renderer;
+	renderer->render(item, latestSnapshot_, hasTelemetrySnapshot_);
 }
 
 void UiController::synchronizeActiveScreen() {
@@ -232,6 +249,9 @@ bool UiController::acceptTelemetrySnapshot(const TelemetrySnapshot &snapshot) {
 	latestSnapshot_ = snapshot;
 	lastTelemetrySequence_ = snapshot.sequence;
 	hasTelemetrySnapshot_ = true;
+	// Append exactly once per network sequence on the LVGL loop thread. The
+	// history store is RAM-only and cannot contribute to flash wear.
+	TelemetryHistory::instance().append(snapshot);
 	return true;
 }
 

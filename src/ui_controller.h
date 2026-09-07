@@ -3,6 +3,7 @@
 #include <lvgl.h>
 
 #include "config_loader.h"
+#include "detail_renderer_factory.h"
 #include "elecrow_crowpanel_display.h"
 #include "network_controller.h"
 
@@ -26,6 +27,12 @@ struct CarouselItem {
 	uint8_t precision;
 	bool compact;
 	uint8_t fontSize;
+	TelemetryDisplayMode displayMode;
+	int thresholdLow;
+	int thresholdHigh;
+	char flowSourceKey[40];
+	char flowBatteryKey[40];
+	char flowLoadKey[40];
 };
 
 /**
@@ -135,6 +142,8 @@ class UiController {
 	lv_obj_t *wifiInfoDetailLabel_ = nullptr;
 	lv_obj_t *electricalTickLabels_[rv_control_ui::constants::kDialTickLabelCount] = {};
 	lv_obj_t *temperatureTickLabels_[rv_control_ui::constants::kDialTickLabelCount] = {};
+	DetailRendererFactory rendererFactory_;
+	DetailRenderer *activeRenderer_ = nullptr;
 
 	/** @brief Create the supplementary SSID and address label used only by Wi-Fi Info. */
 	void initializeWiFiInfoLabel();
