@@ -5,10 +5,32 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <new>
 
 AppConfig &AppConfig::instance() {
   static AppConfig config = {};
   return config;
+}
+
+DisplayCatalog::~DisplayCatalog() {
+  delete[] items;
+}
+
+void DisplayCatalog::clear() {
+  delete[] items;
+  items = nullptr;
+  itemCount = 0;
+  sourceCount = 0;
+  paletteCount = 0;
+  memset(sources, 0, sizeof(sources));
+  memset(palettes, 0, sizeof(palettes));
+}
+
+bool DisplayCatalog::allocateItems(size_t count) {
+  delete[] items;
+  items = new (std::nothrow) TelemetryDisplayDefinition[count];
+  itemCount = 0;
+  return items != nullptr;
 }
 
 DisplayCatalog &DisplayCatalog::instance() {
@@ -30,7 +52,6 @@ using rv_control_ui::constants::kDefaultSerialLevel;
 using rv_control_ui::constants::kDefaultSleepAfterSeconds;
 using rv_control_ui::constants::kDefaultTemperatureUnit;
 using rv_control_ui::constants::kMaximumConfigBytes;
-using rv_control_ui::constants::kMaximumTelemetryDisplays;
 using rv_control_ui::constants::kMaximumTelemetryPalettes;
 using rv_control_ui::constants::kMaximumTelemetrySources;
 
@@ -260,6 +281,7 @@ void applyDefaults(AppConfig &config) {
   config.mqttPort = kDefaultMqttPort;
   config.expectedPollIntervalSeconds = kDefaultPollIntervalSeconds;
   config.sleepAfterSeconds = kDefaultSleepAfterSeconds;
+  config.returnOnSingleClick = true;
   strlcpy(config.temperatureUnit, kDefaultTemperatureUnit, sizeof(config.temperatureUnit));
   strlcpy(config.serialLevel, kDefaultSerialLevel, sizeof(config.serialLevel));
 }
@@ -275,7 +297,7 @@ bool ConfigStore::validateDocument(const ArduinoJson::JsonDocument &document, Ap
   const JsonObjectConst root = document.as<JsonObjectConst>();
 
   applyDefaults(config);
-  memset(&catalog, 0, sizeof(catalog));
+  catalog.clear();
 
   // wifi.ssid may be empty (hotspot-only); every other string must fit its field.
   const JsonObjectConst wifi = root["wifi"].as<JsonObjectConst>();
@@ -314,6 +336,16 @@ bool ConfigStore::validateDocument(const ArduinoJson::JsonDocument &document, Ap
     }
   }
 
+  if (!root["input"].isNull() && !root["input"].is<JsonObjectConst>()) {
+    setError(error, errorSize, "config has an invalid input setting");
+    return false;
+  }
+  const JsonObjectConst input = root["input"].as<JsonObjectConst>();
+  if (!input.isNull() && !readBool(input, "return_on_single_click", true, config.returnOnSingleClick)) {
+    setError(error, errorSize, "config has an invalid input setting");
+    return false;
+  }
+
   const JsonObjectConst logging = root["logging"].as<JsonObjectConst>();
   if (!logging.isNull() && !copyOptionalValue(config.serialLevel, sizeof(config.serialLevel), logging["serial_level"])) {
     setError(error, errorSize, "config has an invalid logging setting");
@@ -350,8 +382,17 @@ bool ConfigStore::validateDocument(const ArduinoJson::JsonDocument &document, Ap
     setError(error, errorSize, "config catalog has no palettes");
     return false;
   }
-  for (JsonObjectConst item : catalogSection["items"].as<JsonArrayConst>()) {
-    if (catalog.itemCount >= kMaximumTelemetryDisplays || !parseItem(item, catalog, catalog.items[catalog.itemCount])) {
+  const JsonArrayConst configuredItems = catalogSection["items"].as<JsonArrayConst>();
+  if (configuredItems.size() == 0) {
+    setError(error, errorSize, "config catalog has no items");
+    return false;
+  }
+  if (!catalog.allocateItems(configuredItems.size())) {
+    setError(error, errorSize, "config catalog display allocation failed");
+    return false;
+  }
+  for (JsonObjectConst item : configuredItems) {
+    if (!parseItem(item, catalog, catalog.items[catalog.itemCount])) {
       setError(error, errorSize, "config catalog contains an invalid item");
       return false;
     }
@@ -397,7 +438,12 @@ bool ConfigStore::load(AppConfig &config, DisplayCatalog &catalog, char *error, 
     setErrorf(error, errorSize, "%s is malformed JSON", kConfigFilePath);
     return false;
   }
-  return validateDocument(document, config, catalog, error, errorSize);
+  if (!validateDocument(document, config, catalog, error, errorSize)) {
+    applyDefaults(config);
+    catalog.clear();
+    return false;
+  }
+  return true;
 }
 
 void ConfigStore::toJson(const AppConfig &config, const DisplayCatalog &catalog, ArduinoJson::JsonDocument &document) {
@@ -415,6 +461,8 @@ void ConfigStore::toJson(const AppConfig &config, const DisplayCatalog &catalog,
   display["temperature_unit"] = config.temperatureUnit;
   display["expected_poll_interval_seconds"] = config.expectedPollIntervalSeconds;
   display["sleep_after_seconds"] = config.sleepAfterSeconds;
+  JsonObject input = document["input"].to<JsonObject>();
+  input["return_on_single_click"] = config.returnOnSingleClick;
   JsonObject logging = document["logging"].to<JsonObject>();
   logging["serial_level"] = config.serialLevel;
 

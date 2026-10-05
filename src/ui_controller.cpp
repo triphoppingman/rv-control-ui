@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <math.h>
+#include <new>
 
 #include "constants.h"
 #include "elecrow_crowpanel_input.h"
@@ -23,8 +24,15 @@ void UiController::configure() {
 	lastUserActivityMilliseconds_ = millis();
 }
 
-void UiController::initializeCarousel() {
+bool UiController::initializeCarousel() {
 	const DisplayCatalog &catalog = DisplayCatalog::instance();
+	delete[] carouselItems_;
+	carouselItems_ = new (std::nothrow) CarouselItem[catalog.itemCount + 2]();
+	delete[] latestValues_;
+	latestValues_ = new (std::nothrow) TelemetryValue[catalog.itemCount]();
+	if (!carouselItems_ || !latestValues_) return false;
+	latestSnapshot_.values = latestValues_;
+	latestSnapshot_.valueCount = catalog.itemCount;
 	carouselItemCount_ = 0;
 	selectedItemIndex_ = 0;
 	for (size_t index = 0; index < catalog.itemCount; ++index) {
@@ -44,7 +52,8 @@ void UiController::initializeCarousel() {
 		strlcpy(carouselItems_[carouselItemCount_ - 1].flowBatteryKey, definition.flowBatteryKey, sizeof(definition.flowBatteryKey));
 		strlcpy(carouselItems_[carouselItemCount_ - 1].flowLoadKey, definition.flowLoadKey, sizeof(definition.flowLoadKey));
 	}
-	rendererFactory_.configure(catalog.itemCount);
+	if (!TelemetryHistory::instance().configure(catalog.itemCount) || !rendererFactory_.configure(catalog)) return false;
+	return true;
 }
 
 void UiController::initializeGeneratedUi() {
@@ -211,8 +220,19 @@ void UiController::synchronizeActiveScreen() {
 }
 
 void UiController::update() {
-	InputAction action; while (ElecrowCrowPanelInput::instance().readAction(action)) { recordUserActivity(); if (action.type == InputActionType::RotateClockwise) handleRotation(true); else if (action.type == InputActionType::RotateCounterclockwise) handleRotation(false); else if (action.type == InputActionType::Click) openSelectedScreen(); else returnToCarousel(); }
-	TelemetrySnapshot snapshot; if (NetworkController::instance().copyLatestSnapshot(snapshot) && acceptTelemetrySnapshot(snapshot)) { Serial.printf("[INFO] Telemetry snapshot %lu received\n", static_cast<unsigned long>(snapshot.sequence)); if (lv_screen_active() == ui_Screen2 || lv_screen_active() == ui_Screen3) refreshActiveDetail(); }
+	InputAction action; while (ElecrowCrowPanelInput::instance().readAction(action)) {
+		recordUserActivity();
+		if (action.type == InputActionType::RotateClockwise) handleRotation(true);
+		else if (action.type == InputActionType::RotateCounterclockwise) handleRotation(false);
+		else if (action.type == InputActionType::Click && lv_screen_active() == ui_Screen1) openSelectedScreen();
+		else if (action.type == InputActionType::Click && AppConfig::instance().returnOnSingleClick) returnToCarousel();
+		else if (action.type == InputActionType::DoubleClick) returnToCarousel();
+	}
+	if (NetworkController::instance().copyLatestSnapshot(latestSnapshot_) &&
+		acceptTelemetrySnapshot(latestSnapshot_)) {
+		Serial.printf("[INFO] Telemetry snapshot %lu received\n", static_cast<unsigned long>(latestSnapshot_.sequence));
+		if (lv_screen_active() == ui_Screen2 || lv_screen_active() == ui_Screen3) refreshActiveDetail();
+	}
 	if (activeRenderer_) activeRenderer_->update();
 	updateDisplaySleep(); lv_timer_handler(); synchronizeActiveScreen(); delay(5);
 }
@@ -232,7 +252,7 @@ void UiController::moveSelection(bool clockwise) {
 
 bool UiController::acceptTelemetrySnapshot(const TelemetrySnapshot &snapshot) {
 	if (snapshot.sequence == lastTelemetrySequence_) return false;
-	latestSnapshot_ = snapshot;
+	if (!snapshot.values || snapshot.values != latestValues_ || snapshot.valueCount != latestSnapshot_.valueCount) return false;
 	lastTelemetrySequence_ = snapshot.sequence;
 	hasTelemetrySnapshot_ = true;
 	// Append exactly once per network sequence on the LVGL loop thread. The

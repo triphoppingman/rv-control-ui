@@ -29,6 +29,7 @@ struct AppConfig {
   uint16_t expectedPollIntervalSeconds;
   uint16_t sleepAfterSeconds;
   char serialLevel[8];
+  bool returnOnSingleClick;
 };
 
 /** @brief One catalog-defined telemetry source and its MQTT topic suffix. */
@@ -82,16 +83,27 @@ struct TelemetryDisplayDefinition {
   uint8_t fontSize;
 };
 
-/** @brief Fixed-capacity list of MQTT-backed definitions parsed at startup. */
+/** @brief Catalog definitions parsed from configuration, with item storage sized to the catalog. */
 struct DisplayCatalog {
   /** @brief Return the one application-wide catalog populated at boot. */
   static DisplayCatalog &instance();
+
+  DisplayCatalog() = default;
+  ~DisplayCatalog();
+  DisplayCatalog(const DisplayCatalog &) = delete;
+  DisplayCatalog &operator=(const DisplayCatalog &) = delete;
+
+  /** @brief Release parsed catalog storage before validating a replacement document. */
+  void clear();
+
+  /** @brief Allocate storage for exactly the configured display-item count. */
+  bool allocateItems(size_t count);
 
   TelemetrySourceDefinition sources[rv_control_ui::constants::kMaximumTelemetrySources];
   size_t sourceCount;
   TelemetryPaletteDefinition palettes[rv_control_ui::constants::kMaximumTelemetryPalettes];
   size_t paletteCount;
-  TelemetryDisplayDefinition items[rv_control_ui::constants::kMaximumTelemetryDisplays];
+  TelemetryDisplayDefinition *items = nullptr;
   size_t itemCount;
 };
 

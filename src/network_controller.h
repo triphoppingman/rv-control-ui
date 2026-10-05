@@ -28,7 +28,8 @@ struct TelemetryValue {
  * networking task.
  */
 struct TelemetrySnapshot {
-  TelemetryValue values[rv_control_ui::constants::kMaximumTelemetryDisplays];
+  TelemetryValue *values = nullptr;
+  size_t valueCount = 0;
   uint32_t receivedAtMilliseconds;
   uint32_t sequence;
 };
@@ -49,7 +50,7 @@ class NetworkController {
   static NetworkController &instance();
 
   /** @brief Start the background network task using the loaded singleton configuration. */
-  void begin();
+  bool begin();
 
   /** @brief Copy the latest parsed snapshot and return false until one is available. */
   bool copyLatestSnapshot(TelemetrySnapshot &snapshot);
@@ -100,5 +101,6 @@ class NetworkController {
   // A short critical section protects cross-task copies of the latest telemetry state.
   portMUX_TYPE snapshotLock_ = portMUX_INITIALIZER_UNLOCKED;
   TelemetrySnapshot snapshot_ = {};
+  TelemetryValue *workingValues_ = nullptr;
   bool hasSnapshot_ = false;
 };

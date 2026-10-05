@@ -30,10 +30,15 @@ void Application::begin() {
 	if (!ElecrowCrowPanelDisplay::instance().begin()) return;
 	UiController::instance().begin();
 	UiController::instance().configure();
-	UiController::instance().initializeCarousel();
+	if (!UiController::instance().initializeCarousel()) {
+		Serial.println("[ERROR] UI display allocation failed");
+		return;
+	}
 	ElecrowCrowPanelInput::instance().begin();
 	UiController::instance().initializeGeneratedUi();
-	NetworkController::instance().begin();
+	if (!NetworkController::instance().begin()) {
+		Serial.println("[ERROR] Network services unavailable; local UI remains active");
+	}
 	initialized_ = true;
 }
 

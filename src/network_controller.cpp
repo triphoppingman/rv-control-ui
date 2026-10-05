@@ -4,6 +4,7 @@
 #include <PubSubClient.h>
 #include <WiFi.h>
 #include <math.h>
+#include <new>
 #include <string.h>
 
 namespace {
@@ -41,9 +42,22 @@ NetworkController &NetworkController::instance() {
   return controller;
 }
 
-void NetworkController::begin() {
+bool NetworkController::begin() {
   const AppConfig &config = AppConfig::instance();
   const DisplayCatalog &catalog = DisplayCatalog::instance();
+  delete[] snapshot_.values;
+  delete[] workingValues_;
+  snapshot_.values = new (std::nothrow) TelemetryValue[catalog.itemCount]();
+  workingValues_ = new (std::nothrow) TelemetryValue[catalog.itemCount]();
+  if (!snapshot_.values || !workingValues_) {
+    delete[] snapshot_.values;
+    delete[] workingValues_;
+    snapshot_.values = nullptr;
+    workingValues_ = nullptr;
+    Serial.println("[ERROR] Telemetry snapshot allocation failed");
+    return false;
+  }
+  snapshot_.valueCount = catalog.itemCount;
   stationConfigured_ = config.wifiSsid[0] != '\0';
   for (size_t index = 0; index < catalog.sourceCount; ++index) {
     subscriptionTopics_[index] = composeTopic(config.mqttBaseTopic, catalog.sources[index].topic);
@@ -52,7 +66,11 @@ void NetworkController::begin() {
   // brought up lwIP. Starting the WebServer here would create a socket before the
   // TCP/IP stack exists and crash on a null lwIP queue. The stack is sized for the
   // WebServer plus the JSON POST parse, which run on this task.
-  xTaskCreatePinnedToCore(taskEntry, "network", 16384, this, 1, nullptr, 0);
+  if (xTaskCreatePinnedToCore(taskEntry, "network", 16384, this, 1, nullptr, 0) != pdPASS) {
+    Serial.println("[ERROR] Network task creation failed");
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -64,9 +82,16 @@ void NetworkController::begin() {
 bool NetworkController::copyLatestSnapshot(TelemetrySnapshot &snapshot) {
   portENTER_CRITICAL(&snapshotLock_);
   const bool available = hasSnapshot_;
-  if (available) snapshot = snapshot_;
+  const bool destinationValid = snapshot.values && snapshot.valueCount == snapshot_.valueCount;
+  if (available && destinationValid) {
+    for (size_t index = 0; index < snapshot_.valueCount; ++index) {
+      snapshot.values[index] = snapshot_.values[index];
+    }
+    snapshot.receivedAtMilliseconds = snapshot_.receivedAtMilliseconds;
+    snapshot.sequence = snapshot_.sequence;
+  }
   portEXIT_CRITICAL(&snapshotLock_);
-  return available;
+  return available && destinationValid;
 }
 
 /** @brief Enter the background task using the instance supplied to FreeRTOS. */
@@ -299,20 +324,23 @@ void NetworkController::processMessage(const char *topic, const uint8_t *payload
   }
 
   const JsonObjectConst object = document.as<JsonObjectConst>();
-  TelemetrySnapshot next = {};
   portENTER_CRITICAL(&snapshotLock_);
-  next = snapshot_;
+  for (size_t index = 0; index < snapshot_.valueCount; ++index) {
+    workingValues_[index] = snapshot_.values[index];
+  }
   portEXIT_CRITICAL(&snapshotLock_);
   for (size_t index = 0; index < catalog.itemCount; ++index) {
     if (strcmp(catalog.items[index].sourceId, catalog.sources[sourceIndex].id) == 0) {
-      next.values[index] = readValue(object, catalog.items[index].valueKey);
+      workingValues_[index] = readValue(object, catalog.items[index].valueKey);
     }
   }
-  next.receivedAtMilliseconds = millis();
 
   portENTER_CRITICAL(&snapshotLock_);
-  next.sequence = snapshot_.sequence + 1;
-  snapshot_ = next;
+  for (size_t index = 0; index < snapshot_.valueCount; ++index) {
+    snapshot_.values[index] = workingValues_[index];
+  }
+  snapshot_.receivedAtMilliseconds = millis();
+  ++snapshot_.sequence;
   hasSnapshot_ = true;
   portEXIT_CRITICAL(&snapshotLock_);
 }

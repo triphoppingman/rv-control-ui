@@ -163,7 +163,7 @@ The initial carousel items, in order, are:
 10. **Display brightness**: retain the existing local backlight control and its `lightArc` behavior. This is the sole non-telemetry carousel item.
 11. **Connection status**: Wi-Fi/MQTT state, snapshot age, topic, and payload error count.
 
-Do not make normal telemetry values editable. A single click may open a concise detail screen for the selected telemetry value, but must not modify it. Brightness is the exception: when its carousel item is selected, encoder rotation changes the local backlight in the existing bounded $0$ to $100$ percent range. A double click returns from a detail view to the carousel; it has no telemetry-side effect.
+Do not make normal telemetry values editable. A single click may open a concise detail screen for the selected telemetry value, but must not modify it. Brightness is the exception: when its carousel item is selected, encoder rotation changes the local backlight in the existing bounded $0$ to $100$ percent range. A single click returns from a detail view to the carousel by default; `input.return_on_single_click: false` restores double-click-to-return behavior. It has no telemetry-side effect.
 
 Touch must agree with encoder state: tapping a preview selects that item, and an optional swipe advances or reverses the same carousel index. Avoid a separate pager that changes the navigation order.
 

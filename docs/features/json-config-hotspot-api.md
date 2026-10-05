@@ -58,12 +58,14 @@ Proposed schema (top level):
   "mqtt":     { "host": "...", "port": 1883, "username": "", "password": "", "base_topic": "rv" },
   "display":  { "temperature_unit": "F", "expected_poll_interval_seconds": 60,
                 "sleep_after_seconds": 300, "show_brightness": true, "show_wifi": true },
+  "input":    { "return_on_single_click": true },
   "logging":  { "serial_level": "INFO" },
   "catalog":  { "sources": [...], "palettes": [...], "items": [...] }
 }
 ```
 
-- The `catalog` object is the current `display-catalog.json` content, moved verbatim (`sources`, `palettes`, `items` keep their existing keys, limits, and validation rules: up to 8 sources, 8 palettes, 16 items; identifier, topic-suffix, color, arc-range, and palette/source reference checks unchanged).
+- The `catalog` object keeps the existing `sources`, `palettes`, and `items` keys and validation rules. It accepts up to 8 sources and 8 palettes; the item count comes from `catalog.items`, with dynamic storage limited in practice by the 12 KB config-file bound and available memory.
+- `input.return_on_single_click` defaults to `true`; set it to `false` to require a double-click to return from a detail view to the carousel.
 - All existing INI keys map one-to-one into the sections above. `show_brightness`/`show_wifi` become booleans (the INI `0`/`1` restriction disappears with the format).
 - The temporary INI migration acceptance of `renogy_topic`/`hughes_topic` is dropped; topic suffixes have lived exclusively in the catalog for some time.
 - The file is bounded (a single maximum size covering both the settings and the catalog), parsed once at boot with ArduinoJson into a bounded document, fully validated, and rejected as a whole on any error — no partially applied configuration, mirroring today's behavior.

@@ -15,6 +15,9 @@ class TelemetryHistory {
 	/** @brief Append one accepted MQTT snapshot for every configured telemetry item. */
 	void append(const TelemetrySnapshot &snapshot);
 
+	/** @brief Allocate RAM history for exactly the configured catalog size. */
+	bool configure(size_t telemetryItemCount);
+
 	/** @brief Return the ordered sample count retained for one telemetry item. */
 	size_t sampleCount(size_t telemetryIndex) const;
 
@@ -22,11 +25,12 @@ class TelemetryHistory {
 	int32_t chartValue(size_t telemetryIndex, size_t orderedIndex, int minimum, int maximum) const;
 
  private:
-	/** @brief Construct the singleton; all samples are fixed-size in RAM. */
+	/** @brief Construct the singleton; samples remain volatile and RAM-only. */
 	TelemetryHistory() = default;
 
 	static constexpr size_t kHistorySamples = 60;
-	TelemetryValue samples_[rv_control_ui::constants::kMaximumTelemetryDisplays][kHistorySamples] = {};
+	TelemetryValue *samples_ = nullptr;
+	size_t telemetryItemCount_ = 0;
 	size_t count_ = 0;
 	size_t nextIndex_ = 0;
 };

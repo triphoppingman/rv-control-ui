@@ -55,17 +55,13 @@ constexpr unsigned long kDebounceMilliseconds = 20;
 /** @brief Maximum delay that groups two presses as a double click. */
 constexpr unsigned long kDoubleClickMilliseconds = 300;
 
-/** @brief Maximum MQTT-backed display definitions accepted from the configuration catalog. */
-constexpr size_t kMaximumTelemetryDisplays = 16;
 /** @brief Maximum MQTT source topics accepted from the configuration catalog. */
 constexpr size_t kMaximumTelemetrySources = 8;
 /** @brief Maximum visual palettes accepted from the configuration catalog. */
 constexpr size_t kMaximumTelemetryPalettes = 8;
 
-/** @brief Maximum number of catalog entries plus the two optional local controls. */
-constexpr size_t kMaximumCarouselItems = kMaximumTelemetryDisplays + 2;
 /** @brief Sentinel index used by carousel entries that have no MQTT telemetry value. */
-constexpr size_t kNoTelemetryIndex = kMaximumTelemetryDisplays;
+constexpr size_t kNoTelemetryIndex = SIZE_MAX;
 /** @brief Number of runtime tick labels around a non-percentage telemetry dial. */
 constexpr size_t kDialTickLabelCount = 6;
 /** @brief Horizontal positions of carousel preview, selected, and preview symbols. */
@@ -124,4 +120,3 @@ constexpr float kDialTickStartAngleRadians = 2.35619449F;
 constexpr float kDialTickSweepRadians = 4.71238898F;
 
 }  // namespace rv_control_ui::constants
-

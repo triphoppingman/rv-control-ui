@@ -53,7 +53,7 @@ class UiController {
 	void configure();
 
 	/** @brief Build carousel items from the singleton telemetry catalog and local settings. */
-	void initializeCarousel();
+	bool initializeCarousel();
 
 	/** @brief Create generated screens and initialize application-owned UI layers. */
 	void initializeGeneratedUi();
@@ -121,7 +121,7 @@ class UiController {
 	friend class DialDetailRenderer;
 
 	ElecrowCrowPanelDisplay *display_ = nullptr;
-	CarouselItem carouselItems_[rv_control_ui::constants::kMaximumCarouselItems] = {};
+	CarouselItem *carouselItems_ = nullptr;
 	size_t carouselItemCount_ = 0;
 	size_t selectedItemIndex_ = 0;
 	uint16_t sleepAfterSeconds_ = 0;
@@ -129,6 +129,7 @@ class UiController {
 	uint32_t lastUserActivityMilliseconds_ = 0;
 	bool displaySleeping_ = false;
 	TelemetrySnapshot latestSnapshot_ = {};
+	TelemetryValue *latestValues_ = nullptr;
 	uint32_t lastTelemetrySequence_ = 0;
 	bool hasTelemetrySnapshot_ = false;
 	lv_obj_t *electricalTickLabels_[rv_control_ui::constants::kDialTickLabelCount] = {};
