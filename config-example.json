@@ -41,6 +41,11 @@
         "source": "battery_monitor",
         "palette": "battery",
         "value_key": "battery_voltage",
+        "background_bands": [
+          {"min": 0, "max": 12, "color": "#493038"},
+          {"min": 12, "max": 14.5, "color": "#314633"},
+          {"min": 14.5, "max": 20, "color": "#493B25"}
+        ],
         "unit": "V",
         "icon": "battery",
         "screen": "electrical",

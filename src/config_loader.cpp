@@ -13,11 +13,13 @@ AppConfig &AppConfig::instance() {
 }
 
 DisplayCatalog::~DisplayCatalog() {
-  delete[] items;
+  clear();
 }
 
 void DisplayCatalog::clear() {
   delete[] items;
+	delete[] backgroundBands;
+	backgroundBands = nullptr;
   items = nullptr;
   itemCount = 0;
   sourceCount = 0;
@@ -31,6 +33,12 @@ bool DisplayCatalog::allocateItems(size_t count) {
   items = new (std::nothrow) TelemetryDisplayDefinition[count];
   itemCount = 0;
   return items != nullptr;
+}
+
+bool DisplayCatalog::allocateBackgroundBands(size_t count) {
+	delete[] backgroundBands;
+	backgroundBands = count ? new (std::nothrow) BackgroundBand[count]() : nullptr;
+	return count == 0 || backgroundBands != nullptr;
 }
 
 DisplayCatalog &DisplayCatalog::instance() {
@@ -391,11 +399,52 @@ bool ConfigStore::validateDocument(const ArduinoJson::JsonDocument &document, Ap
     setError(error, errorSize, "config catalog display allocation failed");
     return false;
   }
+	size_t totalBands = 0;
+	for (JsonVariantConst item : configuredItems) {
+		if (item["background_bands"].isUnbound()) continue;
+		if (!item["background_bands"].is<JsonArrayConst>()) {
+			setError(error, errorSize, "config background_bands must be an array");
+			return false;
+		}
+		totalBands += item["background_bands"].as<JsonArrayConst>().size();
+	}
+	if (!catalog.allocateBackgroundBands(totalBands)) {
+		setError(error, errorSize, "config background band allocation failed");
+		return false;
+	}
+	size_t bandOffset = 0;
   for (JsonObjectConst item : configuredItems) {
     if (!parseItem(item, catalog, catalog.items[catalog.itemCount])) {
       setError(error, errorSize, "config catalog contains an invalid item");
       return false;
     }
+		TelemetryDisplayDefinition &definition = catalog.items[catalog.itemCount];
+		const JsonArrayConst bands = item["background_bands"].as<JsonArrayConst>();
+		if (!bands.isNull() && (definition.displayMode == TelemetryDisplayMode::Brightness ||
+			definition.displayMode == TelemetryDisplayMode::Wifi)) {
+			setError(error, errorSize, "config background_bands require a telemetry display");
+			return false;
+		}
+		definition.backgroundBandCount = bands.size();
+		definition.backgroundBands = bands.size() ? catalog.backgroundBands + bandOffset : nullptr;
+		for (JsonVariantConst entry : bands) {
+			BackgroundBand &band = catalog.backgroundBands[bandOffset];
+			if (!entry.is<JsonObjectConst>() || !entry["min"].is<float>() ||
+				!entry["max"].is<float>() || !entry["color"].is<const char *>() ||
+				!parseColor(entry["color"], 0, band.color)) {
+				setError(error, errorSize, "config background band requires numeric min/max and #RRGGBB color");
+				return false;
+			}
+			band.minimum = entry["min"].as<float>();
+			band.maximum = entry["max"].as<float>();
+			const BackgroundBand *previous = catalog.backgroundBands + bandOffset != definition.backgroundBands
+				? &catalog.backgroundBands[bandOffset - 1] : nullptr;
+			if (!validBackgroundBand(band, previous)) {
+				setError(error, errorSize, "config background bands must be finite, ascending and non-overlapping");
+				return false;
+			}
+			++bandOffset;
+		}
     ++catalog.itemCount;
   }
   if (catalog.itemCount == 0) {
@@ -477,7 +526,7 @@ void ConfigStore::toJson(const AppConfig &config, const DisplayCatalog &catalog,
   for (size_t index = 0; index < catalog.paletteCount; ++index) {
     JsonObject palette = palettes.add<JsonObject>();
     palette["id"] = catalog.palettes[index].id;
-    char color[8];
+    char color[10];
     snprintf(color, sizeof(color), "#%06lX", static_cast<unsigned long>(catalog.palettes[index].tickLabelColor));
     palette["tick_label_color"] = color;
     snprintf(color, sizeof(color), "#%06lX", static_cast<unsigned long>(catalog.palettes[index].displayBackground));
@@ -513,6 +562,18 @@ void ConfigStore::toJson(const AppConfig &config, const DisplayCatalog &catalog,
     item["precision"] = definition.precision;
     item["compact"] = definition.compact;
     item["font_size"] = definition.fontSize;
+		if (definition.backgroundBandCount) {
+			JsonArray bands = item["background_bands"].to<JsonArray>();
+			for (size_t bandIndex = 0; bandIndex < definition.backgroundBandCount; ++bandIndex) {
+				const BackgroundBand &definitionBand = definition.backgroundBands[bandIndex];
+				JsonObject band = bands.add<JsonObject>();
+				band["min"] = definitionBand.minimum;
+				band["max"] = definitionBand.maximum;
+				char color[10];
+				snprintf(color, sizeof(color), "#%06lX", static_cast<unsigned long>(definitionBand.color));
+				band["color"] = color;
+			}
+		}
   item["threshold_low"] = definition.thresholdLow;
   item["threshold_high"] = definition.thresholdHigh;
   if (definition.displayMode == TelemetryDisplayMode::PowerFlow) {

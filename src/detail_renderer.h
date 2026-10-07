@@ -1,5 +1,7 @@
 #pragma once
 
+#include <lvgl.h>
+
 #include "network_controller.h"
 
 struct CarouselItem;
@@ -25,6 +27,10 @@ class DetailRenderer {
 	}
 
  protected:
+	/** @brief Apply optional per-item background bands on the LVGL loop thread. */
+	static void applyBackground(lv_obj_t *screen, const CarouselItem &item,
+								const TelemetrySnapshot &snapshot, bool hasSnapshot);
+
 	/** @brief Format one current telemetry value consistently across every detail renderer. */
 	static void formatCurrentValue(const CarouselItem &item, const TelemetrySnapshot &snapshot, bool hasSnapshot,
 																	 char *text, size_t textSize);

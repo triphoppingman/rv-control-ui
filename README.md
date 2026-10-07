@@ -189,6 +189,41 @@ Define MQTT topics in `sources` and visual colors in `palettes`, then reference 
 
 Supported icon values are `battery`, `solar`, `load`, and `temperature`. Supported screen values are `electrical` and `temperature`. Every palette requires an `id`; its optional `tick_label_color` and `display_background` values must be `#RRGGBB` when specified and default to `#FFFFFF` and `#000000`, respectively. Use the `default` palette shown above for white-on-black rendering, or define subdued type-specific palettes and assign them by ID. `arc_min` is optional and defaults to `0`; use it with `arc_max` to set the inclusive dial range for a telemetry item. For example, use `"arc_min": -100` and `"arc_max": 100` for a signed battery-current value. Every telemetry detail dial renders six tick labels from its configured range and palette: electrical screens use the item `unit`, while temperature screens use `[display] temperature_unit`. This allows a $90$-$140\text{ V}$ voltage dial, an $0$-$100\%$ state-of-charge dial, or an $0$-$150\text{ F}$ temperature dial without inheriting SquareLine's demonstration labels. The incoming numeric value is rounded to a dial tick and clamped to this range; an unavailable value leaves the dial at its minimum. Brightness and WiFi Info remain local screens with their original visual treatment. Source and palette IDs use letters, numbers, `_`, and `-`; topic suffixes cannot contain MQTT wildcards, whitespace, leading/trailing slashes, or empty levels. Every item `source` and `palette` must name a declared definition. The catalog supports up to eight sources and eight palettes. The number of display items is determined by `catalog.items`; storage is allocated to match the configured catalog, subject to available memory and the 12 KB configuration-file limit. Allocation failure is reported at startup. An invalid catalog is rejected as a whole and reported over serial at startup.
 
+### Value-dependent Backgrounds
+
+Any telemetry item can optionally define its own `background_bands`, independent of its `display_mode`, palette, and `threshold_low`/`threshold_high` status settings:
+
+```json
+"background_bands": [
+	{"min": 0, "max": 12, "color": "#493038"},
+	{"min": 12, "max": 14.5, "color": "#314633"},
+	{"min": 14.5, "max": 20, "color": "#493B25"}
+]
+```
+
+These example voltage ranges are illustrative, not battery safety recommendations. Choose bounds and colors appropriate to each measurement and installation.
+
+- Each band includes `min` and excludes `max`: exactly `12` uses the second band, exactly `14.5` uses the third, and exactly `20` uses the palette background.
+- Bounds must be finite numbers with `min < max`. List bands in ascending order without overlaps; gaps are allowed. Colors must be `#RRGGBB`.
+- Matching uses the raw numeric telemetry value, before display rounding, compact-unit scaling, or arc clamping. Bounds use the same units as the incoming value.
+- Missing/unavailable data and unmatched values use the palette's `display_background`. Omitting the array or using `[]` preserves existing rendering.
+- Applies to dial (electrical and temperature), chart, bar, threshold, and power-flow views. Power-flow backgrounds use the item's own `value_key`, not its additional flow keys. Brightness and WiFi items cannot define bands.
+- Nonempty bands disable the dial background image so the chosen solid color remains visible, including during palette fallback. Other assets and the carousel are unchanged.
+- Bands are serialized by `GET /api/config` and validated by the same parser at boot and on config POST. Band storage is sized to the configuration.
+
+Keep the numeric reading and existing labels legible; color is an additional cue, not a replacement for them.
+
+The host regression test exercises the real configuration validator and API serializer, plus band boundaries and fallback rules. After a PlatformIO build has restored ArduinoJson, run it without attached hardware:
+
+```sh
+g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+  -Itest/host_stubs -Isrc -I.pio/libdeps/elecrow-crowpanel-128/ArduinoJson/src \
+  test/background_bands_test.cpp src/config_loader.cpp -o .pio/background_bands_test
+.pio/background_bands_test
+```
+
+The host stubs provide no hardware or filesystem access; this test does not validate physical display output.
+
 ## Build and Upload
 
 Build the firmware from the project root:

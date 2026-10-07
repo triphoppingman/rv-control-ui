@@ -32,7 +32,7 @@ void DialDetailRenderer::render(const CarouselItem &item, const TelemetrySnapsho
 	// both remain read-only views of the copied MQTT snapshot.
 	if (item.usesTemperatureScreen) {
 		lv_obj_set_style_bg_image_src(ui_Screen3, backgroundImageFor(item), LV_PART_MAIN | LV_STATE_DEFAULT);
-		lv_obj_set_style_bg_color(ui_Screen3, lv_color_hex(item.displayBackground), LV_PART_MAIN | LV_STATE_DEFAULT);
+		applyBackground(ui_Screen3, item, snapshot, hasSnapshot);
 		lv_label_set_text(ui_Label8, item.title);
 		UiController::instance().setDialValue(ui_TempNum, text, item.fontSize);
 		lv_arc_set_range(ui_TempArc, item.arcMinimum, item.arcMaximum);
@@ -41,7 +41,7 @@ void DialDetailRenderer::render(const CarouselItem &item, const TelemetrySnapsho
 		UiController::instance().updateTemperatureTickLabels();
 	} else {
 		lv_obj_set_style_bg_image_src(ui_Screen2, backgroundImageFor(item), LV_PART_MAIN | LV_STATE_DEFAULT);
-		lv_obj_set_style_bg_color(ui_Screen2, lv_color_hex(item.displayBackground), LV_PART_MAIN | LV_STATE_DEFAULT);
+		applyBackground(ui_Screen2, item, snapshot, hasSnapshot);
 		lv_obj_remove_flag(ui_VolNum, LV_OBJ_FLAG_HIDDEN);
 		lv_obj_remove_flag(ui_VolumeArc, LV_OBJ_FLAG_HIDDEN);
 		lv_label_set_text(ui_Label4, item.title);

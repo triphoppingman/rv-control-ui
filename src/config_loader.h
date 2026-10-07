@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "constants.h"
+#include "background_bands.h"
 
 /**
  * @brief Typed, bounded device settings loaded from the unified /config.json.
@@ -81,6 +82,9 @@ struct TelemetryDisplayDefinition {
   uint8_t precision;
   bool compact;
   uint8_t fontSize;
+	/** @brief Optional ranges backed by the catalog's immutable band storage. */
+	const BackgroundBand *backgroundBands;
+	size_t backgroundBandCount;
 };
 
 /** @brief Catalog definitions parsed from configuration, with item storage sized to the catalog. */
@@ -99,12 +103,16 @@ struct DisplayCatalog {
   /** @brief Allocate storage for exactly the configured display-item count. */
   bool allocateItems(size_t count);
 
+	/** @brief Allocate the combined band pool for this configuration. */
+	bool allocateBackgroundBands(size_t count);
+
   TelemetrySourceDefinition sources[rv_control_ui::constants::kMaximumTelemetrySources];
   size_t sourceCount;
   TelemetryPaletteDefinition palettes[rv_control_ui::constants::kMaximumTelemetryPalettes];
   size_t paletteCount;
   TelemetryDisplayDefinition *items = nullptr;
   size_t itemCount;
+	BackgroundBand *backgroundBands = nullptr;
 };
 
 /**

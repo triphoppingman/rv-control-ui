@@ -48,7 +48,7 @@ void ChartDetailRenderer::ensureObjects() {
 void ChartDetailRenderer::render(const CarouselItem &item, const TelemetrySnapshot &snapshot, bool hasSnapshot) {
 	ensureObjects();
 	lv_obj_set_style_bg_image_src(ui_Screen2, nullptr, LV_PART_MAIN | LV_STATE_DEFAULT);
-	lv_obj_set_style_bg_color(ui_Screen2, lv_color_hex(item.displayBackground), LV_PART_MAIN | LV_STATE_DEFAULT);
+	applyBackground(ui_Screen2, item, snapshot, hasSnapshot);
 	lv_label_set_text(ui_Label4, item.title);
 	lv_obj_add_flag(ui_VolNum, LV_OBJ_FLAG_HIDDEN);
 	lv_obj_add_flag(ui_Image3, LV_OBJ_FLAG_HIDDEN);

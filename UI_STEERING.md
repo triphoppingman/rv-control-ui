@@ -171,6 +171,8 @@ Format voltage to one decimal place and current to meaningful precision. Derived
 
 Do not rely on red/green alone to communicate state. Pair color with text, iconography, or position and keep daylight contrast high.
 
+Telemetry items may use optional `background_bands` with ascending, non-overlapping `[min, max)` ranges and `#RRGGBB` colors. These are per-context presentation rules, independent of low/high status thresholds. Match raw values; use the palette background for unavailable or unmatched values. Nonempty bands disable dial background images so colors are visible. Omitted bands preserve the existing presentation; see [README.md](README.md#value-dependent-backgrounds).
+
 ## SquareLine Workflow
 
 1. Edit the visual layout and semantic object names in `Arduino/ui_project/SLS_1_28v2-20250807/`.

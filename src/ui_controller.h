@@ -32,6 +32,8 @@ struct CarouselItem {
 	char flowSourceKey[40];
 	char flowBatteryKey[40];
 	char flowLoadKey[40];
+	const BackgroundBand *backgroundBands;
+	size_t backgroundBandCount;
 };
 
 /**

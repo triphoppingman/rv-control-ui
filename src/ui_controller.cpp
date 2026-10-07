@@ -47,7 +47,7 @@ bool UiController::initializeCarousel() {
 			strcmp(definition.screen, "temperature") == 0, definition.arcMinimum, definition.arcMaximum,
 			definition.tickLabelColor, definition.displayBackground, definition.backgroundImage, definition.precision,
 			definition.compact, definition.fontSize, definition.displayMode, definition.thresholdLow, definition.thresholdHigh,
-			{}, {}, {}};
+			{}, {}, {}, definition.backgroundBands, definition.backgroundBandCount};
 		strlcpy(carouselItems_[carouselItemCount_ - 1].flowSourceKey, definition.flowSourceKey, sizeof(definition.flowSourceKey));
 		strlcpy(carouselItems_[carouselItemCount_ - 1].flowBatteryKey, definition.flowBatteryKey, sizeof(definition.flowBatteryKey));
 		strlcpy(carouselItems_[carouselItemCount_ - 1].flowLoadKey, definition.flowLoadKey, sizeof(definition.flowLoadKey));
