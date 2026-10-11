@@ -7,6 +7,7 @@
 #include <esp_heap_caps.h>
 
 #include "constants.h"
+#include <esp_ota_ops.h>
 
 namespace {
 
@@ -83,7 +84,7 @@ bool ElecrowCrowPanelDisplay::begin() {
 	panelDriver_->fillScreen(TFT_BLACK);
 
 	lv_init();
-	lv_tick_set_cb(millis);
+	lv_tick_set_cb([]() -> uint32_t { return static_cast<uint32_t>(millis()); });
 	const size_t bufferSize = kScreenWidth * kScreenHeight * sizeof(uint16_t);
 	primaryBuffer_ = static_cast<uint8_t *>(heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM));
 	secondaryBuffer_ = static_cast<uint8_t *>(heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM));
@@ -97,7 +98,12 @@ bool ElecrowCrowPanelDisplay::begin() {
 	lv_display_set_user_data(lvglDisplay_, this);
 	lv_display_set_flush_cb(lvglDisplay_, flushCallback);
 	lv_display_set_buffers(lvglDisplay_, primaryBuffer_, secondaryBuffer_, bufferSize, LV_DISPLAY_RENDER_MODE_FULL);
+	#if ESP_ARDUINO_VERSION_MAJOR >= 3
 	ledcAttach(kBacklightPin, 5000, 8);
+	#else
+	ledcSetup(kBacklightPwmChannel, 5000, 8);
+	ledcAttachPin(kBacklightPin, kBacklightPwmChannel);
+	#endif
 	setBacklightPercent(brightnessPercent_);
 	return true;
 }
@@ -106,12 +112,16 @@ lv_display_t *ElecrowCrowPanelDisplay::lvglDisplay() const { return lvglDisplay_
 
 void ElecrowCrowPanelDisplay::setBacklightPercent(uint8_t percent) {
 	brightnessPercent_ = constrain(percent, 0, 100);
-	if (backlightEnabled_) ledcWrite(kBacklightPin, (brightnessPercent_ * 255U) / 100U);
+	if (backlightEnabled_) setBacklightEnabled(true);
 }
 
 void ElecrowCrowPanelDisplay::setBacklightEnabled(bool enabled) {
 	backlightEnabled_ = enabled;
+	#if ESP_ARDUINO_VERSION_MAJOR >= 3
 	ledcWrite(kBacklightPin, enabled ? (brightnessPercent_ * 255U) / 100U : 0);
+	#else
+	ledcWrite(kBacklightPwmChannel, enabled ? (brightnessPercent_ * 255U) / 100U : 0);
+	#endif
 }
 
 void ElecrowCrowPanelDisplay::flush(const lv_area_t *area, uint8_t *pixels) {

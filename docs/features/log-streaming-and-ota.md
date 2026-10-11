@@ -63,47 +63,87 @@ after an empty response or a buffer rollover.
 
 ## OTA Firmware Upload
 
-### Endpoint
+### PlatformIO Workflow
+
+The standard `elecrow-crowpanel-128` PlatformIO environment remains the USB
+firmware/filesystem path. `elecrow-crowpanel-128-ota` is a separate custom
+upload environment that invokes `scripts/ota_upload.py`; its hook rejects
+`uploadfs` and `buildfs`. The OTA hook is not active for USB environments.
+
+PlatformIO's Python environment and ESP32 framework already provide all build
+and firmware-update dependencies. The workstation uploader uses Python's
+standard library; no additional Python package is required.
+
+### Provisioning
+
+Each device uses one random 256-bit shared key. Run
+`scripts/ota_upload.py keygen` to create `secrets/ota.key` with mode 0600; after
+creating and editing `data/config.json`, run
+`scripts/ota_upload.py provision --config data/config.json` to add the matching
+hexadecimal value to the device-local config. Neither command prints the key
+or configuration. Both paths are ignored by Git. An empty `ota.shared_secret`
+disables authenticated API access and OTA; the example configuration
+deliberately leaves it empty.
+
+Provision the key and install the OTA-capable firmware plus filesystem once
+over USB. USB firmware and filesystem uploads do not read or require the key.
+If the key is lost, provision a replacement through USB and reinstall the
+filesystem; do not rotate only one side of the pair.
+
+### Authenticated API
 
 | Method | Path | Content type | Behavior |
 | --- | --- | --- | --- |
-| `POST` | `/api/firmware` | `multipart/form-data` | Streams one PlatformIO-built ESP32 application image to the inactive OTA partition. |
+| `GET` | `/api/ota/challenge` | JSON response | Returns a random, short-lived, one-use nonce and public OTA capabilities. |
+| `POST` | `/api/firmware` | `application/octet-stream` | Streams one fixed-length application image to the inactive OTA slot. |
 
-The request uses a single file field named `firmware`. The service accepts only
-the application binary produced for the configured CrowPanel environment, such
-as `.pio/build/elecrow-crowpanel-128/firmware.bin`. It must not accept a SPIFFS
-image, configuration JSON, archive, or arbitrary file format.
+When a key is provisioned, `/api/config` GET/POST and `/api/restart` POST also
+require HMAC authorization. Configuration GET does not return the OTA key.
+Configuration POST preserves the provisioned key and cannot rotate or clear
+it. `/api/info` remains unauthenticated and returns device/build metadata only.
 
-Example client request:
+The client signs a canonical message containing protocol version, method, path,
+nonce, request size, SHA-256, and board target. The device consumes the nonce
+once and compares HMAC-SHA-256 in constant time. The firmware endpoint verifies
+the declared length, image type, target marker, and streamed SHA-256 before
+activating the slot. Chunked transfer encoding, multipart forms, config images,
+SPIFFS images, and arbitrary binaries are rejected.
 
-```sh
-curl --fail-with-body -X POST http://192.168.77.1/api/firmware \
-  -F firmware=@.pio/build/elecrow-crowpanel-128/firmware.bin
-```
+Authentication does not encrypt HTTP traffic or authenticate responses. Use a
+trusted LAN or the device hotspot only; do not expose the API to the Internet.
+In particular, authenticated configuration GET responses still contain the
+stored Wi-Fi and MQTT settings, so they must not be sent over an untrusted
+network.
 
 ### Update Lifecycle
 
-1. Reject concurrent configuration updates or firmware uploads with `409`.
-2. Start the ESP32 `Update` session using the inactive OTA application
-   partition and its reported capacity.
-3. Stream upload chunks directly from the HTTP upload callback to `Update`.
-   Never buffer the complete image in RAM, SPIFFS, or a `String`.
-4. Abort and return `400` or `413` for an empty, oversized, interrupted, or
-   failed upload. Preserve the running firmware image on every failure.
-5. Call `Update.end(true)` only when the full upload completed successfully.
-6. Return `200` with `{"status":"ok","action":"restarting"}`, allow a
-   short response-flush grace period, then restart into the new OTA partition.
+1. Check the device target and inactive-slot capacity; inspect the local ESP
+  image and snapshot it to a temporary file before sending.
+2. Obtain a nonce and authorize the exact image metadata with HMAC. Stream the
+  fixed-length image once; never buffer firmware in device RAM or SPIFFS.
+3. Abort on disconnect, timeout, oversize, wrong target, bad digest, or flash
+  error. A failed upload never activates the partial image.
+4. Activate only after exact byte count and SHA-256 validation. The client
+  never retries a firmware POST after an ambiguous connection failure; it
+  instead checks the device's running ELF identity and OTA state.
+5. Defer Arduino's default eager confirmation. Roll back on critical display/UI
+  startup failure, and confirm only after the UI loop has run successfully for
+  the configured health interval. Wi-Fi and MQTT availability are not health
+  requirements.
 
-The implementation records only upload lifecycle events and byte counts in the
-live log buffer. It must never log firmware bytes.
+The receiver logs lifecycle events and byte counts only, never firmware data or
+the shared key.
 
 ### API Errors
 
 | Status | Meaning |
 | --- | --- |
-| `400` | Missing firmware field, empty upload, malformed multipart request, or update validation failure. |
-| `409` | A configuration write, restart, or firmware update is already pending. |
+| `400` | Invalid length/headers, interrupted upload, wrong image target, or digest/update validation failure. |
+| `401` | Missing, expired, replayed, or invalid HMAC authorization. |
+| `403` | OTA disabled because no shared key is provisioned. |
+| `409` | A restart is pending or the running image has not yet passed boot confirmation. |
 | `413` | The image exceeds the inactive OTA partition capacity. |
+| `429` | Challenge requests are rate limited. |
 | `500` | The ESP32 update subsystem could not begin, write, or finalize the image. |
 
 Error responses use the existing JSON form:
@@ -112,26 +152,13 @@ Error responses use the existing JSON form:
 {"error":"firmware image exceeds the OTA partition capacity"}
 ```
 
-## Security Model
-
-The current configuration API is intentionally unauthenticated under a
-local-only trust model and exposes configuration secrets by design. OTA upload
-has the same network exposure, but it can execute arbitrary firmware; therefore
-it raises the impact of that decision.
-
-Before enabling the endpoint, the device must remain reachable only from a
-trusted LAN or its setup hotspot. Do not expose it through WAN port forwarding,
-public Wi-Fi, an untrusted guest network, or an Internet-facing reverse proxy.
-Any future authentication mechanism must protect `/api/config`, `/api/logs`,
-`/api/restart`, and `/api/firmware` consistently rather than securing OTA in
-isolation.
-
 ## Ownership and Implementation Boundaries
 
 - `NetworkController` owns Wi-Fi, the HTTP server, status LED, and all API
   request processing in its network task.
 - `ConfigApi` owns endpoint registration, bounded request validation, response
-  serialization, OTA state, and delayed restart scheduling.
+  serialization, authenticated maintenance actions, OTA state, and delayed
+  restart scheduling.
 - A dedicated bounded `LogBuffer` owns RAM-only entries and provides safe
   snapshot copies. It must not depend on `ConfigApi`, `NetworkController`, or
   LVGL.
@@ -147,10 +174,14 @@ isolation.
 - A client can poll with the latest sequence and receive only newer entries.
 - Normal API polling, MQTT reconnects, and UI activity remain responsive while
   log snapshots are requested.
-- A valid `firmware.bin` upload installs to the inactive OTA partition, returns
-  success, and restarts into the new image.
-- Invalid, incomplete, or oversized uploads return a JSON error and leave the
-  currently booted firmware usable.
+- A valid application binary installs to the inactive OTA partition, restarts,
+  and is confirmed only after healthy UI-loop operation.
+- Invalid, unauthenticated, incomplete, wrong-target, or oversized uploads
+  leave the currently booted firmware usable.
+- A critical UI startup failure rolls back to the previous image; Wi-Fi/MQTT
+  outages alone do not trigger rollback.
+- USB firmware upload remains available with no OTA key and is unaffected by
+  OTA authentication. OTA filesystem targets are rejected.
 - Firmware upload does not invoke LVGL, publish MQTT messages, change RV
   hardware, or write configuration.
 - Build with `~/.platformio/penv/bin/pio run`; perform OTA validation on a test

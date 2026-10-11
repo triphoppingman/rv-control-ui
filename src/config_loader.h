@@ -26,6 +26,8 @@ struct AppConfig {
   char mqttUsername[65];
   char mqttPassword[65];
   char mqttBaseTopic[64];
+  /** @brief Hex-encoded 256-bit OTA/API key; empty disables OTA, never logged or exported. */
+	char otaSharedSecret[65];
   char temperatureUnit[4];
   uint16_t expectedPollIntervalSeconds;
   uint16_t sleepAfterSeconds;

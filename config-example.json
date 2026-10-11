@@ -21,6 +21,9 @@
   "logging": {
     "serial_level": "INFO"
   },
+  "ota": {
+    "shared_secret": ""
+  },
   "catalog": {
     "sources": [
       {"id": "battery_monitor", "topic": "telemetry"},

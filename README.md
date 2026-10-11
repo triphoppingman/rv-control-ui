@@ -95,6 +95,46 @@ The single file carries both the device settings and the telemetry catalog. The 
 
 Do not commit `data/config.json`, paste its contents into issues, or send it in serial logs. The firmware logs the broker host and MQTT topic but never logs the Wi-Fi SSID or credentials.
 
+## OTA Firmware Updates
+
+No additional packages are needed: PlatformIO supplies the firmware toolchain, and the OTA client uses Python's standard library. Keep the existing `elecrow-crowpanel-128` environment for USB firmware and filesystem uploads; the OTA secret is never consulted by USB uploads.
+
+Generate a random per-device key without displaying it:
+
+```sh
+~/.platformio/penv/bin/python scripts/ota_upload.py keygen
+```
+
+This creates `secrets/ota.key` with owner-only permissions. After creating and editing `data/config.json`, provision the matching key into that device configuration:
+
+```sh
+~/.platformio/penv/bin/python scripts/ota_upload.py provision --config data/config.json
+```
+
+Both files are ignored by Git. Do not copy the key into source, logs, or documentation. OTA stays disabled until a nonempty key has been provisioned into the device config.
+
+Install the OTA-capable firmware and keyed SPIFFS configuration once over USB:
+
+```sh
+~/.platformio/penv/bin/pio run -e elecrow-crowpanel-128 -t uploadfs
+~/.platformio/penv/bin/pio run -e elecrow-crowpanel-128 -t upload
+```
+
+After that, select `elecrow-crowpanel-128-ota` in PlatformIO's Project Tasks and run **Upload**. The default host is the setup hotspot at `192.168.77.1`; for a station-network address, set `RV_CONTROL_UI_OTA_HOST` before starting VS Code or the PlatformIO command. Set `RV_CONTROL_UI_OTA_KEY_FILE` if the private key is stored elsewhere. The OTA environment refuses filesystem upload/build targets; use the USB environment for those operations.
+
+The uploader checks the image target and device capacity, authenticates with a one-use challenge and HMAC-SHA-256, streams only the application binary, then waits for the matching image to pass its local boot-health check. Authentication is over plain HTTP, not encryption: use a trusted local network and do not expose the API to the Internet. See [the OTA design and protocol](docs/features/log-streaming-and-ota.md#ota-firmware-upload).
+
+The companion API commands are available without installing `click` or `requests`:
+
+```sh
+~/.platformio/penv/bin/python scripts/ui_api.py info
+~/.platformio/penv/bin/python scripts/ui_api.py get-config --output /path/to/private/config.json
+~/.platformio/penv/bin/python scripts/ui_api.py set-config --input /path/to/config.json
+~/.platformio/penv/bin/python scripts/ui_api.py restart
+```
+
+Use `--host HOST` to select a different device. Config GET/POST and restart use the same optional OTA-key challenge authentication as the firmware uploader; fetched config is written with owner-only permissions and is never printed.
+
 ## Setup Hotspot
 
 When the device cannot join the configured Wi-Fi network — or `wifi.ssid` is empty — it starts a setup hotspot so it can be configured without a USB cable or PlatformIO.

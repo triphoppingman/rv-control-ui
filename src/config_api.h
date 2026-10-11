@@ -4,6 +4,7 @@
 
 #include "config_loader.h"
 #include "constants.h"
+#include "firmware_updater.h"
 
 /**
  * @brief Snapshot of network state reported by the info endpoint.
@@ -64,6 +65,11 @@ class ConfigApi {
   /** @brief Acknowledge and schedule an immediate device restart. */
   void handlePostRestart();
 
+  /** @brief Verify and activate the completed firmware upload. */
+  void handlePostFirmware();
+  /** @brief Authorize the exact request body when a key was provisioned over USB. */
+  bool authorizeRequest(const char *method, const char *path, const uint8_t *body, size_t size);
+
   /** @brief Accumulate a raw POST body chunk; called by the WebServer during parsing. */
   void collectPostBody();
 
@@ -82,4 +88,5 @@ class ConfigApi {
   // BSS (see config_api.cpp) so it never consumes the network task's stack.
   size_t postBodyLength_;
   bool postBodyOverflow_;
+	FirmwareUpdater firmwareUpdater_;
 };

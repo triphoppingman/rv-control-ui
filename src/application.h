@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 /**
  * @brief Coordinates startup and loop-thread service of the singleton firmware components.
  *
@@ -20,6 +22,12 @@ class Application {
  private:
 	/** @brief Construct the singleton; use instance() to access the coordinator. */
 	Application() = default;
+	/** @brief Reject an unbootable pending image so the bootloader restores its predecessor. */
+	void rejectPendingOta();
+	/** @brief Confirm a new image after the UI has completed a healthy run interval. */
+	void serviceOtaHealth();
 
 	bool initialized_ = false;
+	bool otaPendingVerification_ = false;
+	uint32_t otaHealthStartedAtMilliseconds_ = 0;
 };

@@ -23,6 +23,8 @@ data/*.local.*
 .pio/
 .pioenvs/
 .piolibdeps/
+__pycache__/
+*.py[cod]
 .clang_complete
 .gcc-flags.json
 compile_commands.json

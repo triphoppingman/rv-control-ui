@@ -306,6 +306,29 @@ bool ConfigStore::validateDocument(const ArduinoJson::JsonDocument &document, Ap
 
   applyDefaults(config);
   catalog.clear();
+  config.otaSharedSecret[0] = '\0';
+  if (!root["ota"].isNull() && !root["ota"].is<JsonObjectConst>()) {
+    setError(error, errorSize, "config has an invalid ota section");
+    return false;
+  }
+  if (!copyOptionalValue(config.otaSharedSecret, sizeof(config.otaSharedSecret), root["ota"]["shared_secret"])) {
+    setError(error, errorSize, "config has an invalid ota shared_secret");
+    return false;
+  }
+  if (config.otaSharedSecret[0]) {
+    if (strlen(config.otaSharedSecret) != 64) {
+      setError(error, errorSize, "ota shared_secret must contain 64 hexadecimal characters");
+      return false;
+    }
+    for (size_t index = 0; index < 64; ++index) {
+      const char character = config.otaSharedSecret[index];
+      if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') ||
+          (character >= 'A' && character <= 'F'))) {
+        setError(error, errorSize, "ota shared_secret must contain 64 hexadecimal characters");
+        return false;
+      }
+    }
+  }
 
   // wifi.ssid may be empty (hotspot-only); every other string must fit its field.
   const JsonObjectConst wifi = root["wifi"].as<JsonObjectConst>();

@@ -90,6 +90,21 @@ constexpr uint16_t kConfigApiPort = 80;
 /** @brief Grace delay after a successful config POST before the device restarts. */
 constexpr uint32_t kConfigApiRestartDelayMilliseconds = 500;
 
+/** @brief Protocol paths and bounded OTA maintenance timings. */
+constexpr char kOtaChallengePath[] = "/api/ota/challenge";
+constexpr char kOtaFirmwarePath[] = "/api/firmware";
+constexpr char kOtaTarget[] = "elecrow-crowpanel-128";
+constexpr char kOtaTargetMarker[] = "RV_CONTROL_UI_TARGET:elecrow-crowpanel-128:v1";
+constexpr char kOtaProtocol[] = "rv-control-ui-ota-v1";
+constexpr uint32_t kOtaChallengeLifetimeMilliseconds = 60000;
+constexpr uint32_t kOtaChallengeIntervalMilliseconds = 1000;
+constexpr uint32_t kOtaUploadTimeoutMilliseconds = 120000;
+constexpr uint32_t kOtaBootTimeoutMilliseconds = 30000;
+constexpr uint32_t kOtaBootHealthyMilliseconds = 10000;
+constexpr size_t kOtaFirstHeaderBytes = 32;
+/** @brief PWM channel used by Arduino 2.x backlight compatibility. */
+constexpr uint8_t kBacklightPwmChannel = 0;
+
 /** @brief Hotspot SSID prefix; the last four MAC hex digits are appended. */
 constexpr char kHotspotSsidPrefix[] = "rv-control-ui-";
 /** @brief Fixed hotspot password (a documented, non-secret setup value). */
